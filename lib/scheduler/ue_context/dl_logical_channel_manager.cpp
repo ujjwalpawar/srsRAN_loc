@@ -21,6 +21,8 @@
  */
 
 #include "dl_logical_channel_manager.h"
+#include <iostream>
+#include "srsran/scheduler/ta_ce_tracker.h"
 
 using namespace srsran;
 
@@ -278,8 +280,36 @@ void dl_logical_channel_manager::handle_mac_ce_indication(const mac_ce_info& ce)
       ce_it->ce_payload = ce.ce_payload;
       return;
     }
+
+    // New TA_CMD CE queued for this UE logical channel manager.
+    pending_ces.push_back(ce);
+    // Attempt to extract TA payload and print simple info for tracing.
+    if (ce.ce_payload.index() == 0) {
+      const auto& payload = std::get<ta_cmd_ce_payload>(ce.ce_payload);
+      // Print TAG_ID as an unsigned integer to avoid empty formatting and make it explicit.
+      std::cout << "[DL_LC] CE QUEUED: LCID=" << static_cast<int>(ce.ce_lcid.value()) << " TAG_ID="
+                << static_cast<unsigned>(payload.tag_id.value()) << " TA_CMD=" << static_cast<int>(payload.ta_cmd)
+                << std::endl;
+      // Track CE queued for later HARQ correlation (store payload info).
+      srsran::ta_ce_tracker::track_ce_queued(static_cast<int>(ce.ce_lcid.value()),
+                                            static_cast<int>(payload.tag_id.value()),
+                                            static_cast<int>(payload.ta_cmd));
+    } else {
+      std::cout << "[DL_LC] CE QUEUED: LCID=" << static_cast<int>(ce.ce_lcid.value()) << std::endl;
+      srsran::ta_ce_tracker::track_ce_queued(static_cast<int>(ce.ce_lcid.value()));
+    }
+    return;
   }
+
+  // Generic CE path: push and log minimal info.
   pending_ces.push_back(ce);
+  if (ce.ce_payload.index() == 0) {
+    const auto& payload = std::get<ta_cmd_ce_payload>(ce.ce_payload);
+  std::cout << "[DL_LC] CE QUEUED (generic): LCID=" << static_cast<int>(ce.ce_lcid.value()) << " TAG_ID="
+        << payload.tag_id.value() << " TA_CMD=" << static_cast<int>(payload.ta_cmd) << std::endl;
+  } else {
+  std::cout << "[DL_LC] CE QUEUED (generic): LCID=" << static_cast<int>(ce.ce_lcid.value()) << std::endl;
+  }
 }
 
 unsigned dl_logical_channel_manager::allocate_mac_sdu(dl_msg_lc_info& subpdu, unsigned rem_bytes, lcid_t lcid)
@@ -376,12 +406,41 @@ unsigned dl_logical_channel_manager::allocate_mac_ce(dl_msg_lc_info& subpdu, uns
 
   // Verify there is space for both MAC CE and subheader.
   if (rem_bytes < alloc_bytes) {
+    // Not enough space in this TB to fit the CE. Print reason for debugging.
+    try {
+      if (!pending_ces.empty() && pending_ces.front().ce_payload.index() == 0) {
+        const auto& payload = std::get<ta_cmd_ce_payload>(pending_ces.front().ce_payload);
+        std::cout << "[DL_LC] CE NOT_ALLOCATED (no space): LCID=" << static_cast<int>(lcid.value())
+                  << " TAG_ID=" << static_cast<unsigned>(payload.tag_id.value()) << " TA_CMD="
+                  << static_cast<int>(payload.ta_cmd) << " NEED_BYTES=" << alloc_bytes << " REM_BYTES="
+                  << rem_bytes << std::endl;
+      } else {
+        std::cout << "[DL_LC] CE NOT_ALLOCATED (no space): LCID=" << static_cast<int>(lcid.value())
+                  << " NEED_BYTES=" << alloc_bytes << " REM_BYTES=" << rem_bytes << std::endl;
+      }
+    } catch (...) {
+    }
     return 0;
   }
 
   subpdu.lcid        = lcid;
   subpdu.sched_bytes = ce_size;
   subpdu.ce_payload  = pending_ces.front().ce_payload;
+
+  // Log CE allocated into transport block for tracing.
+    if (subpdu.ce_payload.index() == 0) {
+      const auto& payload = std::get<ta_cmd_ce_payload>(subpdu.ce_payload);
+      std::cout << "[DL_LC] CE ALLOCATED TO TB: LCID=" << static_cast<int>(subpdu.lcid.value())
+                << " TAG_ID=" << static_cast<unsigned>(payload.tag_id.value()) << " TA_CMD="
+                << static_cast<int>(payload.ta_cmd) << std::endl;
+      // Mark CE as allocated into TB and keep payload info.
+      srsran::ta_ce_tracker::track_ce_allocated(static_cast<int>(subpdu.lcid.value()),
+                                                static_cast<int>(payload.tag_id.value()),
+                                                static_cast<int>(payload.ta_cmd));
+  } else {
+      std::cout << "[DL_LC] CE ALLOCATED TO TB: LCID=" << static_cast<int>(subpdu.lcid.value()) << std::endl;
+      srsran::ta_ce_tracker::track_ce_allocated(static_cast<int>(subpdu.lcid.value()));
+  }
 
   pending_ces.pop_front();
 

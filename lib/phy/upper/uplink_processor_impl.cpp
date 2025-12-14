@@ -27,7 +27,7 @@
 #include "srsran/phy/support/shared_resource_grid.h"
 #include "srsran/phy/upper/unique_rx_buffer.h"
 #include "srsran/phy/upper/upper_phy_rx_results_notifier.h"
-
+#include <iostream>
 using namespace srsran;
 
 /// \brief Returns a PRACH detector slot configuration using the given PRACH buffer context.
@@ -112,10 +112,13 @@ void uplink_processor_impl::handle_rx_symbol(const shared_resource_grid& grid, u
   // Process all the PDUs taken from the repository.
   for (const auto& pdu : pdus) {
     if (const auto* pusch_pdu = std::get_if<uplink_pdu_slot_repository::pusch_pdu>(&pdu)) {
+
       process_pusch(grid, *pusch_pdu);
     } else if (const auto* pucch_pdu = std::get_if<uplink_pdu_slot_repository::pucch_pdu>(&pdu)) {
+
       process_pucch(grid, *pucch_pdu);
     } else if (const auto* srs_pdu = std::get_if<uplink_pdu_slot_repository::srs_pdu>(&pdu)) {
+      // std::cout << "SRS PDU" << std::endl;
       process_srs(grid, *srs_pdu);
     }
   }
@@ -270,7 +273,8 @@ void uplink_processor_impl::process_srs(const shared_resource_grid&             
     ul_srs_results result;
     result.context          = pdu.context;
     result.processor_result = srs->estimate(grid2.get_reader(), pdu.config);
-
+    // result.context.is_normalized_channel_iq_matrix_report_requested = true;
+    // result.context.is_positioning_report_requested                = true;
     l1_tracer << trace_event("process_srs", tp);
 
     notifier.on_new_srs_results(result);

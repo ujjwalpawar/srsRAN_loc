@@ -167,7 +167,7 @@ int main(int argc, char** argv)
   srs_resource.configuration_index = bw_config_index;
   srs_resource.sequence_id         = sequence_id;
   srs_resource.bandwidth_index     = bw_index;
-  srs_resource.comb_size           = srs_resource_configuration::comb_size_enum::four;
+  srs_resource.comb_size           = srs_resource_configuration::comb_size_enum::two;
   srs_resource.comb_offset         = 0;
   srs_resource.cyclic_shift        = 0;
   srs_resource.freq_position       = 0;

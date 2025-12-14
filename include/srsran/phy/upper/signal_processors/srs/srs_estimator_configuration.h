@@ -38,6 +38,8 @@ struct srs_estimator_configuration {
   srs_resource_configuration resource;
   /// Receive port list.
   static_vector<uint8_t, srs_constants::max_nof_rx_ports> ports;
+  /// C-RNTI of the UE (for identification in UDP packets)
+  uint16_t rnti = 0;
 };
 
 } // namespace srsran

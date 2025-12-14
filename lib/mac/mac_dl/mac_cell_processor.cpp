@@ -30,8 +30,64 @@
 #include "srsran/scheduler/result/sched_result.h"
 #include "srsran/support/async/execute_on_blocking.h"
 #include "srsran/support/rtsan.h"
-
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <iostream>
 using namespace srsran;
+
+// struct SlotInfo {
+//   uint32_t sfn;
+//   uint32_t slot_index;
+// };
+
+
+// void send_slot_info(const std::string& ip, int port, SlotInfo info)
+// {
+//   int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+//   if (sockfd < 0) return;
+
+//   sockaddr_in dest{};
+//   dest.sin_family = AF_INET;
+//   dest.sin_port = htons(port);
+//   inet_pton(AF_INET, ip.c_str(), &dest.sin_addr);
+
+//   sendto(sockfd, &info, sizeof(info), 0, (sockaddr*)&dest, sizeof(dest));
+//   close(sockfd);
+// }
+
+// bool try_receive_slot_info(SlotInfo& info, int sockfd)
+// {
+//   sockaddr_in sender_addr{};
+//   socklen_t sender_len = sizeof(sender_addr);
+//   ssize_t bytes = recvfrom(sockfd, &info, sizeof(info), 0,
+//                            reinterpret_cast<sockaddr*>(&sender_addr), &sender_len);
+//   std::cout<<"Received slot info: " << info.sfn << " " << info.slot_index << std::endl;
+//   std::cout<<"Bytes received: " << bytes << std::endl;
+//   return bytes == sizeof(SlotInfo);
+// }
+
+// int create_nonblocking_udp_receiver(int port)
+// {
+//   int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+//   if (sockfd < 0) return -1;
+
+//   int flags = fcntl(sockfd, F_GETFL, 0);
+//   fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
+
+//   sockaddr_in addr{};
+//   addr.sin_family = AF_INET;
+//   addr.sin_port = htons(port);
+//   addr.sin_addr.s_addr = INADDR_ANY;
+
+//   if (bind(sockfd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+//     close(sockfd);
+//     return -1;
+//   }
+
+//   return sockfd;
+// }
+
 
 /// Maximum PDSH K0 value as per TS38.331 "PDSCH-TimeDomainResourceAllocation".
 static constexpr size_t MAX_K0_DELAY = 32;
@@ -257,11 +313,34 @@ void mac_cell_processor::handle_slot_indication_impl(slot_point               sl
                                                      metric_clock::time_point enqueue_slot_tp) SRSRAN_RTSAN_NONBLOCKING
 {
   // * Start of Critical Path * //
+  // static thread_local int udp_recv_fd = create_nonblocking_udp_receiver(9001); 
+  // static thread_local std::string peer_ip = "10.0.0.4";
+  // static thread_local int peer_port = 9000;
+  // static thread_local bool recv_once = true;
+  
+  // if(recv_once) {
+  //   logger.set_context(sl_tx.sfn(), sl_tx.slot_index());
+  //   logger.info("[GNB] subframe= {} slot= {}: Received slot indication \n", sl_tx.sfn(), sl_tx.slot_index());
+  //   logger.info("[GNB] Delayed gNB paused \n");
+  //   logger.info("[GNB] Sending slot indication to peer \n");
+  //   SlotInfo my_info{sl_tx.sfn(), sl_tx.slot_index()};
+  //   send_slot_info(peer_ip, peer_port, my_info);
+  //   SlotInfo peer_info{};
+  //   if (try_receive_slot_info(peer_info, udp_recv_fd)) {
+  //     logger.info("[GNB] Received slot indication from peer: subframe= {} slot= {} \n", peer_info.sfn, peer_info.slot_index);
+  //     sl_tx = slot_point{peer_info.sfn, peer_info.slot_index};
+  //     recv_once = false;
+  //   } 
+  //   else {
+  //     logger.warning("[GNB] Failed to receive slot indication from peer \n");
+  //   }
+  //   return ;
+  // }
 
-  auto        metrics_meas = metrics.start_slot(sl_tx, enqueue_slot_tp);
-  trace_point sched_tp     = metrics_meas.start_time_point();
 
   logger.set_context(sl_tx.sfn(), sl_tx.slot_index());
+  auto        metrics_meas = metrics.start_slot(sl_tx, enqueue_slot_tp);
+  trace_point sched_tp     = metrics_meas.start_time_point();
 
   // Cleans old MAC DL PDU buffers.
   pdu_pool.tick(sl_tx.to_uint());

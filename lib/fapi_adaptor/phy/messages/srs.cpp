@@ -42,6 +42,7 @@ void srsran::fapi_adaptor::convert_srs_fapi_to_phy(uplink_pdu_slot_repository::s
 
   // Fill SRS resource configuration.
   pdu.config.slot = slot_point(fapi_pdu.scs, sfn, slot);
+  pdu.config.rnti = to_value(fapi_pdu.rnti);
   pdu.config.resource.nof_antenna_ports =
       static_cast<srs_resource_configuration::one_two_four_enum>(fapi_pdu.num_ant_ports);
   pdu.config.resource.nof_symbols  = static_cast<srs_resource_configuration::one_two_four_enum>(fapi_pdu.num_symbols);

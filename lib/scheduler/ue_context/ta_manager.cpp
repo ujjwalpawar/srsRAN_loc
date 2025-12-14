@@ -19,10 +19,18 @@
  * and at http://www.gnu.org/licenses/.
  *
  */
-
+ 
 #include "ta_manager.h"
 #include <numeric>
-
+#include <algorithm>
+#include <cmath>
+#include <iostream>
+#include <filesystem>
+#include <fstream>
+#include <chrono>
+#include <iomanip>
+#include <ctime>
+#include "srsran/scheduler/ta_shared.h"
 using namespace srsran;
 
 ta_manager::ta_manager(const scheduler_ue_expert_config& expert_cfg_,
@@ -77,6 +85,9 @@ void ta_manager::slot_indication(slot_point current_sl)
     return;
   }
 
+  // Debug: indicate entry into slot_indication to verify control reaches here
+  // std::cout << "TA_DEBUG: slot_indication entered, state=" << static_cast<int>(state) << std::endl;
+
   // Update the measurement start time.
   // NOTE: When the state is idle, it denotes the start of measurement window. And when the measurement time reaches the
   // threshold only then I change the state back to idle (until then the state will be in measure)
@@ -106,16 +117,45 @@ void ta_manager::slot_indication(slot_point current_sl)
     }
     const time_alignment_group::id_t tag_id = n_ta_reports[tag_idx].tag_id;
 
-    // Send Timing Advance command only if the offset is equal to or greater than the threshold.
-    // The new Timing Advance Command is a value ranging from [0,...,63] as per TS 38.213, clause 4.2. Hence, we
-    // need to subtract a value of 31 (as per equation in the same clause) to get the change in Timing Advance Command.
-    const unsigned new_t_a = compute_new_t_a(compute_avg_n_ta_difference(tag_idx));
-    if (abs((int)new_t_a - ta_cmd_offset_zero) >= expert_cfg.ta_cmd_offset_threshold) {
-      // Send Timing Advance Command to UE.
-      dl_lc_ch_mgr->handle_mac_ce_indication(
-          {.ce_lcid = lcid_dl_sch_t::TA_CMD, .ce_payload = ta_cmd_ce_payload{.tag_id = tag_id, .ta_cmd = new_t_a}});
-      ta_cmd_sent = true;
+  // Send Timing Advance Command only if the offset is equal to or greater than the threshold.
+  // The new Timing Advance Command is a value ranging from [0,...,63] as per TS 38.213, clause 4.2. Hence, we
+  // need to subtract a value of 31 (as per equation in the same clause) to get the change in Timing Advance Command.
+  const unsigned new_t_a = compute_new_t_a(compute_avg_n_ta_difference(tag_idx));
+
+  // Debug: print computed TA values and threshold so we can see why the branch may not be taken.
+  // std::cout << "TA_DEBUG: new_t_a=" << new_t_a
+  //   << " ta_cmd_offset_zero=" << ta_cmd_offset_zero
+  //   << " threshold=" << static_cast<int>(expert_cfg.ta_cmd_offset_threshold)
+  //   << " diff=" << abs((int)new_t_a - ta_cmd_offset_zero)
+  //   << std::endl;
+  if (abs((int)new_t_a - ta_cmd_offset_zero) >= expert_cfg.ta_cmd_offset_threshold) {
+  // Note: do NOT update shared TA state here on CE enqueue — only apply delta when the CE is
+  // actually ACKed (handled in cell_harq_manager). Previously we updated the shared TA on send,
+  // which could lead to the delta being applied multiple times if slot_indication runs more than
+  // once before the HARQ is ACKed. Keep the timestamp retrieval for potential future use.
+  // Do not update shared TA here; no timestamp variable is needed.
+    // Send Timing Advance Command to UE.
+    dl_lc_ch_mgr->handle_mac_ce_indication(
+        {.ce_lcid = lcid_dl_sch_t::TA_CMD, .ce_payload = ta_cmd_ce_payload{.tag_id = tag_id, .ta_cmd = new_t_a}});
+    ta_cmd_sent = true;
+      // Print signed TA offset (new_t_a - ta_cmd_offset_zero). Avoid unsigned underflow when new_t_a < 31.
+      {
+        const int ta_offset = static_cast<int>(new_t_a) - ta_cmd_offset_zero;
+        // Track time elapsed since last TA update in milliseconds using a static timestamp.
+        static std::chrono::steady_clock::time_point last_ta_time;
+        static bool last_ta_time_set = false;
+        const auto now = std::chrono::steady_clock::now();
+        long long elapsed_ms = 0;
+        if (last_ta_time_set) {
+          elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_ta_time).count();
+        } else {
+          last_ta_time_set = true;
+        }
+        last_ta_time = now;
+        std::cout << " TA CMD " << ta_offset << " TIME_DIFF_MS " << elapsed_ms << std::endl;
+      }
     }
+
 
     // Reset stored measurements.
     reset_measurements(tag_idx);

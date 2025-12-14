@@ -22,6 +22,7 @@
 
 #include "srs_scheduler_impl.h"
 #include "../cell/resource_grid.h"
+#include <fmt/format.h>
 #include "srsran/srslog/srslog.h"
 
 using namespace srsran;
@@ -433,6 +434,24 @@ bool srs_scheduler_impl::allocate_srs_opportunity(cell_slot_resource_allocator& 
   // Add SRS PDU into results.
   slot_alloc.result.ul.srss.emplace_back(
       create_srs_pdu(srs_opportunity.rnti, ul_bwp_cfg, *srs_res, pos_req != nullptr));
+
+  if (schedule_exporter != nullptr) {
+    srs_schedule_descriptor desc;
+    desc.slot                  = slot_alloc.slot;
+    desc.rnti                  = srs_opportunity.rnti;
+    desc.resource              = *srs_res;
+    desc.positioning_requested = (pos_req != nullptr);
+    if (pos_req && pos_req->imeisv) {
+      desc.imeisv = pos_req->imeisv;
+    }
+    desc.schedule_id = fmt::format("{}-{}-{}-{}-{}",
+                                   fmt::underlying(cell_cfg.cell_index),
+                                   desc.slot.sfn(),
+                                   desc.slot.slot_index(),
+                                   fmt::underlying(desc.rnti),
+                                   fmt::underlying(srs_res->id.ue_res_id));
+    schedule_exporter->handle_schedule(desc);
+  }
 
   return true;
 }

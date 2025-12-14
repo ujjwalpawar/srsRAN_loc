@@ -24,6 +24,7 @@
 
 #include "fmt/format.h"
 #include <cstdint>
+#include <string_view>
 #include <type_traits>
 
 namespace srsran {
@@ -57,6 +58,29 @@ constexpr rnti_t to_rnti(std::underlying_type_t<rnti_t> number)
 constexpr inline uint16_t to_value(rnti_t rnti)
 {
   return static_cast<uint16_t>(rnti);
+}
+
+/// Creates a deterministic positioning RNTI from an IMEISV string and optional salt.
+inline rnti_t make_positioning_rnti(std::string_view imeisv, uint32_t salt = 0)
+{
+  // 32-bit FNV-1a hash with optional salt.
+  uint32_t hash = 0x811C9DC5u ^ salt;
+  constexpr uint32_t fnv_prime = 0x01000193u;
+  for (char c : imeisv) {
+    hash ^= static_cast<uint8_t>(c);
+    hash *= fnv_prime;
+  }
+
+  // Keep 15 entropy bits and set the MSB to mark this as positioning-specific.
+  uint16_t rnti_value = static_cast<uint16_t>((hash & 0x7FFFu) | 0x8000u);
+  if (rnti_value == to_value(rnti_t::SI_RNTI)) {
+    // Avoid colliding with SI-RNTI.
+    rnti_value ^= 0x0100u;
+  }
+  if (rnti_value == to_value(rnti_t::INVALID_RNTI)) {
+    rnti_value = 0x8001u;
+  }
+  return to_rnti(rnti_value);
 }
 
 } // namespace srsran

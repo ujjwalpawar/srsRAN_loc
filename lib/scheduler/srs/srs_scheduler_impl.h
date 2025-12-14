@@ -24,6 +24,7 @@
 
 #include "../ue_scheduling/ue_repository.h"
 #include "srs_scheduler.h"
+#include "srsran/scheduler/srs_schedule_exporter.h"
 #include "srsran/ran/srs/srs_configuration.h"
 
 namespace srsran {
@@ -50,6 +51,7 @@ public:
   void handle_positioning_measurement_request(const positioning_measurement_request& req) override;
 
   void handle_positioning_measurement_stop(du_cell_index_t cell_index, rnti_t pos_rnti) override;
+  void set_schedule_exporter(srs_schedule_exporter* exporter) override { schedule_exporter = exporter; }
 
 private:
   /// Information on currently configured SRS resources and corresponding UEs to be scheduled periodically.
@@ -96,6 +98,9 @@ private:
 
   // Pending positioning requests.
   std::vector<positioning_measurement_request> pending_pos_requests;
+
+  /// Optional hook that exports SRS allocations.
+  srs_schedule_exporter* schedule_exporter = nullptr;
 };
 
 } // namespace srsran

@@ -321,8 +321,9 @@ o_du_high_unit srsran::make_o_du_high_unit(const o_du_high_unit_config&  o_du_hi
   report_error_if_not(odu_unit.o_du_hi, "Invalid O-DU high");
 
   // Create remote commands.
-  odu_unit.commands.remote.push_back(
-      std::make_unique<ssb_modify_remote_command>(odu_unit.o_du_hi->get_du_high().get_du_configurator()));
+  auto& du_conf = odu_unit.o_du_hi->get_du_high().get_du_configurator();
+  odu_unit.commands.remote.push_back(std::make_unique<ssb_modify_remote_command>(du_conf));
+  odu_unit.commands.remote.push_back(std::make_unique<positioning_trigger_remote_command>(du_conf));
 
   return odu_unit;
 }

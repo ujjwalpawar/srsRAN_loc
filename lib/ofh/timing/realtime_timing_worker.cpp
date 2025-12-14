@@ -25,7 +25,10 @@
 #include "srsran/ofh/timing/ofh_ota_symbol_boundary_notifier.h"
 #include <future>
 #include <thread>
-
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <iostream>
 using namespace srsran;
 using namespace ofh;
 
@@ -62,6 +65,56 @@ struct gps_clock {
 };
 
 } // namespace
+
+
+
+
+void send_slot_info(const std::string& ip, int port, int info)
+{
+  int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+  if (sockfd < 0) return;
+
+  sockaddr_in dest{};
+  dest.sin_family = AF_INET;
+  dest.sin_port = htons(port);
+  inet_pton(AF_INET, ip.c_str(), &dest.sin_addr);
+
+  sendto(sockfd, &info, sizeof(info), 0, (sockaddr*)&dest, sizeof(dest));
+  close(sockfd);
+}
+
+int try_receive_slot_info(int info, int sockfd)
+{
+  sockaddr_in sender_addr{};
+  socklen_t sender_len = sizeof(sender_addr);
+  ssize_t bytes = recvfrom(sockfd, &info, sizeof(info), 0,
+                           reinterpret_cast<sockaddr*>(&sender_addr), &sender_len);
+  if(bytes > 0)
+    std::cout<<"Received slot info: " << info << std::endl;
+  
+  return bytes;
+}
+
+int create_nonblocking_udp_receiver(int port)
+{
+  int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+  if (sockfd < 0) return -1;
+
+  int flags = fcntl(sockfd, F_GETFL, 0);
+  fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
+
+  sockaddr_in addr{};
+  addr.sin_family = AF_INET;
+  addr.sin_port = htons(port);
+  addr.sin_addr.s_addr = INADDR_ANY;
+
+  if (bind(sockfd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+    close(sockfd);
+    return -1;
+  }
+
+  return sockfd;
+}
 
 /// Calculates the fractional part inside a second from the given time point.
 static std::chrono::nanoseconds calculate_ns_fraction_from(gps_clock::time_point tp)
@@ -176,6 +229,29 @@ calculate_slot_point(subcarrier_spacing scs, uint64_t gps_seconds, uint32_t frac
 
 void realtime_timing_worker::poll()
 {
+
+  static thread_local int udp_recv_fd = create_nonblocking_udp_receiver(9000); 
+  static thread_local std::string peer_ip = "10.0.0.1";
+  static thread_local int peer_port = 9001;
+  static thread_local bool recv_once = true;
+  static thread_local bool send = false;
+  if(recv_once) {
+    if(!send){
+      send_slot_info(peer_ip, peer_port, 1);
+      send= true;
+    }
+      int info = 0;
+    if (try_receive_slot_info(info, udp_recv_fd) != -1) {
+      logger.info("[GNB] Received ready  \n");
+      recv_once = false;
+      
+    } 
+    else{
+      return;
+    }
+    
+  }
+
   auto now         = gps_clock::now();
   auto ns_fraction = calculate_ns_fraction_from(now);
 

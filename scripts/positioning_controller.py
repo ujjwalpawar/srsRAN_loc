@@ -82,6 +82,35 @@ def build_payload(args: argparse.Namespace) -> str:
     return json.dumps(payload)
 
 
+def log_cells(payload: str) -> None:
+    """Print a short summary for every positioning schedule being forwarded."""
+    try:
+        message = json.loads(payload)
+    except json.JSONDecodeError as err:
+        print(f"[positioning_controller] Failed to parse payload for logging: {err}")
+        return
+
+    cells = message.get("cells", [])
+    if not cells:
+        print("[positioning_controller] Warning: payload contains no cells.")
+        return
+
+    for cell in cells:
+        plmn = cell.get("plmn", "unknown")
+        nci = cell.get("nci", "unknown")
+        schedule = cell.get("schedule", {})
+        imeisv = schedule.get("imeisv", "unknown")
+        rnti = schedule.get("rnti", "n/a")
+        periodicity = schedule.get("resource", {}).get("periodicity", {})
+        t_srs = periodicity.get("t_srs", "n/a")
+        offset = periodicity.get("offset", "n/a")
+        print(
+            "[positioning_controller] Forwarding UE schedule:"
+            f" cell={plmn}/{nci} imeisv={imeisv} rnti={rnti}"
+            f" periodicity={t_srs} offset={offset}"
+        )
+
+
 async def send_request(url: str, payload: str) -> None:
     async with websockets.connect(url) as ws:
         await ws.send(payload)
@@ -146,4 +175,6 @@ if __name__ == "__main__":
         if missing:
             parser.error(f"Missing required arguments in manual mode: {', '.join(missing)}")
 
-    asyncio.run(main(args.du, build_payload(args)))
+    payload = build_payload(args)
+    log_cells(payload)
+    asyncio.run(main(args.du, payload))

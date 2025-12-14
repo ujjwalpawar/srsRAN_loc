@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include "srsran/mac/mac_cell_manager.h"
 #include "srsran/ran/nr_cgi.h"
 #include "srsran/ran/rrm.h"
 #include "srsran/support/async/async_task.h"
@@ -52,13 +53,16 @@ struct du_mac_sched_control_config_response {
 /// Parameters of a cell that need to be configured during the DU cell operation.
 struct du_cell_param_config_request {
   du_cell_param_config_request() = default;
-  du_cell_param_config_request(nr_cell_global_id_t nr_cgi_, std::optional<int> ssb_pwr_mod_) :
-    nr_cgi(nr_cgi_), ssb_pwr_mod(ssb_pwr_mod_)
+  du_cell_param_config_request(nr_cell_global_id_t                              nr_cgi_,
+                               std::optional<int>                               ssb_pwr_mod_,
+                               std::optional<mac_cell_positioning_measurement_request> positioning_ = std::nullopt) :
+    nr_cgi(nr_cgi_), ssb_pwr_mod(ssb_pwr_mod_), positioning(std::move(positioning_))
   {
   }
 
   nr_cell_global_id_t nr_cgi;
   std::optional<int>  ssb_pwr_mod;
+  std::optional<mac_cell_positioning_measurement_request> positioning;
 };
 
 /// Parameters of the DU that need to be configured during operation.

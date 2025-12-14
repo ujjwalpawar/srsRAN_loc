@@ -21,6 +21,8 @@
  */
 
 #include "ue_cell_grid_allocator.h"
+#include <iostream>
+#include "srsran/scheduler/ta_ce_tracker.h"
 #include "../support/csi_report_helpers.h"
 #include "../support/dci_builder.h"
 #include "../support/mcs_calculator.h"
@@ -628,6 +630,29 @@ dl_alloc_result ue_cell_grid_allocator::allocate_dl_grant(const common_ue_dl_gra
   }
 
   h_dl->save_grant_params(pdsch_sched_ctx, msg);
+
+  // Log HARQ allocation and included LC list for traceability (CE -> HARQ mapping).
+    try {
+      const auto& g = h_dl->get_grant_params();
+      // First, link HARQ with LCIDs so we know if this HARQ contains a tracked CE.
+      try {
+        unsigned h_id_uint = static_cast<unsigned>(fmt::underlying(h_dl->id()));
+        srsran::ta_ce_tracker::link_harq_with_lcs(h_id_uint, g.lc_sched_info);
+        // Print HARQ_SAVED only if this HARQ was associated with a tracked CE (reduces log noise).
+        if (srsran::ta_ce_tracker::is_tracked_harq(h_id_uint)) {
+          std::cout << "[GRID] HARQ_SAVED: h_id=" << fmt::underlying(h_dl->id()) << " TBS=" << g.tbs_bytes
+                    << " LCs=[";
+          for (const auto& lc : g.lc_sched_info) {
+            std::cout << static_cast<int>(lc.lcid.value()) << ":" << lc.sched_bytes.value() << ",";
+          }
+          std::cout << "]" << std::endl;
+        }
+      } catch (...) {
+        // best-effort
+      }
+    } catch (...) {
+      // Best-effort logging; do not throw.
+    }
 
   // Update DRX state given the new allocation.
   u.drx_controller().on_new_pdcch_alloc(pdcch_alloc.slot);

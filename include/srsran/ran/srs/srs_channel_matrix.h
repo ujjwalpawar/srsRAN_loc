@@ -35,7 +35,8 @@
 #include <cstdint>
 #include <initializer_list>
 #include <numeric>
-
+#include <fstream>
+#include <iostream>
 namespace srsran {
 
 /// \brief SRS-based estimated channel matrix.
@@ -44,6 +45,7 @@ namespace srsran {
 /// arranged by i) receive ports and ii) transmit ports.
 class srs_channel_matrix
 {
+
 public:
   /// Channel matrix dimensions.
   enum class dims : uint8_t { rx_port = 0, tx_port, all };
@@ -285,6 +287,36 @@ public:
     result *= scaling;
     return result;
   }
+
+  void dump_to_file(const std::string& filename) const
+  {
+      std::ofstream file(filename, std::ios::out | std::ios::binary);
+      if (!file.is_open()) {
+          std::cerr << "Error: Unable to open file for writing: " << filename << std::endl;
+          return;
+      }
+
+      unsigned nof_rx_ports = get_nof_rx_ports();
+      unsigned nof_tx_ports = get_nof_tx_ports();
+
+      // Write the matrix dimensions (optional)
+      file << "Number of Receive Ports: " << nof_rx_ports << "\n";
+      file << "Number of Transmit Ports: " << nof_tx_ports << "\n";
+      file << "Channel Matrix Data (Row by Row):\n";
+
+      // Write the coefficients row by row
+      for (unsigned i_rx_port = 0; i_rx_port < nof_rx_ports; ++i_rx_port) {
+          for (unsigned i_tx_port = 0; i_tx_port < nof_tx_ports; ++i_tx_port) {
+              cf_t coefficient = get_coefficient(i_rx_port, i_tx_port);
+              file << "RX Port: " << i_rx_port << " TX Port: " << i_tx_port
+                   << " Coefficient: " << coefficient << "\n";
+          }
+      }
+
+      file.close();
+      std::cout << "Channel matrix successfully dumped to file: " << filename << std::endl;
+  }
+
 
 private:
   /// \brief Resizes the number of coefficients to a desired number of receive and transmit ports.

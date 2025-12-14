@@ -40,6 +40,7 @@
 #include "srsran/ngap/ngap_setup.h"
 #include "srsran/ngap/ngap_types.h"
 #include "srsran/ran/cause/ngap_cause.h"
+#include "srsran/scheduler/ue_identity_tracker.h"
 
 using namespace srsran;
 using namespace asn1::ngap;
@@ -473,6 +474,30 @@ void ngap_impl::handle_initial_context_setup_request(const asn1::ngap::init_cont
                            init_ctxt_setup_req.security_context.supported_int_algos);
   ue_ctxt.logger.log_debug("Supported ciphering algorithms: {}",
                            init_ctxt_setup_req.security_context.supported_enc_algos);
+
+  // Capture IMEISV if present - OPTIONAL, best effort, should not block UE attach
+  if (request->masked_imeisv_present) {
+    try {
+      // Convert fixed_bitstring<64> to string (hex representation)
+      std::string imeisv_str;
+      char buf[17]; // 64 bits = 16 hex chars + null terminator
+      snprintf(buf, sizeof(buf), "%016lX", request->masked_imeisv.to_number());
+      imeisv_str = buf;
+
+      std::cout << "[NGAP_IMEISV] ue_index=" << fmt::underlying(ue_ctxt.ue_ids.ue_index) 
+                << " ran_ue=" << fmt::underlying(ue_ctxt.ue_ids.ran_ue_id)
+                << " amf_ue=" << fmt::underlying(ue_ctxt.ue_ids.amf_ue_id)
+                << " IMEISV=" << imeisv_str << std::endl;
+
+      // Register IMEISV with ue_index in the identity tracker
+      // C-RNTI will be linked later in scheduler when UE is created
+      ue_identity_tracker::register_imeisv_from_ngap(imeisv_str, fmt::underlying(ue_ctxt.ue_ids.ue_index));
+    } catch (const std::exception& e) {
+      logger.warning("Failed to process IMEISV: {}", e.what());
+    } catch (...) {
+      logger.warning("Failed to process IMEISV: unknown error");
+    }
+  }
 
   // start routine
   ue->schedule_async_task(launch_async<ngap_initial_context_setup_procedure>(

@@ -57,6 +57,7 @@ private:
   unsigned next_cell_idx = 0;
 
   static_vector<du_cell_index_t, MAX_NOF_DU_CELLS> changed_cells;
+  std::vector<mac_cell_reconfig_request>          cell_reconfigs;
 
   du_param_config_response resp;
 };

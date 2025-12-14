@@ -26,6 +26,8 @@
 #include "../srs/srs_scheduler.h"
 #include "../support/sr_helper.h"
 #include "../uci_scheduling/uci_scheduler_impl.h"
+#include "srsran/ran/rnti.h"
+#include "srsran/scheduler/ue_identity_tracker.h"
 #include "srsran/support/memory_pool/unbounded_object_pool.h"
 
 using namespace srsran;
@@ -242,6 +244,14 @@ void ue_event_manager::handle_ue_creation(ue_config_update_event ev)
     du_cell_index_t pcell_index = u->get_pcell().cell_index;
     ue_db.add_ue(std::move(u));
 
+    // Link C-RNTI to IMEISV in the identity tracker (if IMEISV was registered from NGAP)
+    // This is best-effort tracking and should not affect UE attach
+    try {
+      ue_identity_tracker::link_crnti_to_imeisv(to_value(rnti), fmt::underlying(ueidx));
+    } catch (...) {
+      // Silently ignore - this is debug/tracking feature only
+    }
+
     const auto& added_ue = ue_db[ueidx];
     for (unsigned i = 0, e = added_ue.nof_cells(); i != e; ++i) {
       // Update UCI scheduler with new UE UCI resources.
@@ -347,6 +357,13 @@ void ue_event_manager::handle_ue_deletion(ue_config_delete_event ev)
     const auto&     u         = ue_db[ue_idx];
     const rnti_t    rnti      = u.crnti;
     du_cell_index_t pcell_idx = u.get_pcell().cell_index;
+
+    // Remove C-RNTI mapping from identity tracker (so it can be reused for new UEs)
+    try {
+      ue_identity_tracker::remove_crnti(to_value(rnti));
+    } catch (...) {
+      // Silently ignore - this is debug/tracking feature only
+    }
 
     for (unsigned i = 0, e = u.nof_cells(); i != e; ++i) {
       // Update UCI scheduling by removing existing UE UCI resources.
@@ -755,14 +772,25 @@ void ue_event_manager::handle_dl_buffer_state_indication(const dl_buffer_state_i
 
 void ue_event_manager::handle_positioning_measurement_request(const positioning_measurement_request& req)
 {
-  auto req_ptr = ind_pdu_pool->create_positioning_measurement_request(req);
+  positioning_measurement_request derived_req = req;
+  if (derived_req.imeisv &&
+      (derived_req.pos_rnti == rnti_t::INVALID_RNTI || !is_crnti(derived_req.pos_rnti))) {
+    derived_req.pos_rnti = make_positioning_rnti(*derived_req.imeisv);
+  }
+  if (derived_req.pos_rnti == rnti_t::INVALID_RNTI) {
+    logger.warning("cell={}: Positioning request discarded. Cause: missing positioning RNTI and IMEISV",
+                   fmt::underlying(derived_req.cell_index));
+    return;
+  }
+
+  auto req_ptr = ind_pdu_pool->create_positioning_measurement_request(derived_req);
   if (not common_events.try_push(
           common_event_t{INVALID_DU_UE_INDEX, [this, req_ptr = std::move(req_ptr)]() {
                            srsran_sanity_check(cell_exists(req_ptr->cell_index), "Invalid cell index");
                            du_cells[req_ptr->cell_index].srs_sched->handle_positioning_measurement_request(*req_ptr);
                          }})) {
     logger.warning("cell={}: Positioning request was discarded. Cause: Event queue is full",
-                   fmt::underlying(req.cell_index));
+                   fmt::underlying(derived_req.cell_index));
   }
 }
 

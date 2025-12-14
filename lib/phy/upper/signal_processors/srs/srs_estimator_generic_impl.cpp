@@ -19,7 +19,7 @@
  * and at http://www.gnu.org/licenses/.
  *
  */
-
+ 
 #include "srs_estimator_generic_impl.h"
 #include "srsran/adt/complex.h"
 #include "srsran/adt/static_vector.h"
@@ -36,15 +36,22 @@
 #include "srsran/srsvec/prod.h"
 #include "srsran/srsvec/sc_prod.h"
 #include "srsran/srsvec/subtract.h"
-
+#include <iostream>
+#include <chrono>
+#include <fstream>
+#include <fstream>
+#include <vector>
+#include <complex>
+#include <ctime>
+#include <iomanip>
 using namespace srsran;
+#include "srsran/scheduler/ta_shared.h"
 
 void srs_estimator_generic_impl::compensate_phase_shift(span<cf_t> mean_lse,
                                                         float      phase_shift_subcarrier,
                                                         float      phase_shift_offset)
 {
   unsigned sequence_length = mean_lse.size();
-
   // Generate phase indices.
   span<unsigned> phase_indices = span<unsigned>(temp_phase).first(sequence_length);
   std::generate(
@@ -62,9 +69,11 @@ void srs_estimator_generic_impl::compensate_phase_shift(span<cf_t> mean_lse,
   srsvec::prod(mean_lse, cexp, mean_lse);
 }
 
+
 srs_estimator_result srs_estimator_generic_impl::estimate(const resource_grid_reader&        grid,
                                                           const srs_estimator_configuration& config)
 {
+  long long unsigned int ts = std::chrono::high_resolution_clock::now().time_since_epoch().count();
   srsran_assert(!config.resource.has_frequency_hopping(), "Frequency hopping is not supported.");
   srsran_assert(config.resource.is_valid(), "Invalid SRS resource.");
   srsran_assert(!config.ports.empty(), "Receive port list is empty.");
@@ -101,7 +110,6 @@ srs_estimator_result srs_estimator_generic_impl::estimate(const resource_grid_re
   result.time_alignment.min            = std::numeric_limits<double>::min();
   result.time_alignment.max            = std::numeric_limits<double>::max();
   result.channel_matrix                = srs_channel_matrix(nof_rx_ports, nof_antenna_ports);
-
   // Temporary LSE.
   static_tensor<3, cf_t, max_seq_length * srs_constants::max_nof_rx_ports * srs_constants::max_nof_tx_ports> temp_lse(
       {sequence_length, nof_rx_ports, nof_antenna_ports});
@@ -127,9 +135,38 @@ srs_estimator_result srs_estimator_generic_impl::estimate(const resource_grid_re
     // Generate sequence and store them in all_sequences.
     span<cf_t> sequence = all_sequences.get_view({i_antenna_port});
     deps.sequence_generator->generate(sequence, info.sequence_group, info.sequence_number, info.n_cs, info.n_cs_max);
-
+     
+    //ujjwal debug
+    //printing sequence
+    // auto filename = "srs_sequence.txt";
+    // std::ofstream file(filename, std::ios::out);
+    // if (!file.is_open()) {
+    //   std::cerr << "Failed to open the file for writing." << std::endl;
+    // }
+    // else{
+    // for (size_t i = 0; i < sequence.size(); ++i) {
+    //   file << "Index " << i << ": " 
+    //        << sequence[i].real() << " + " 
+    //        << sequence[i].imag() << "j\n";
+    // }
+    
+    // file.close();
+    // }
+    // for (size_t i = 0; i < sequence.size(); ++i) {
+    //       std::cout << "Index " << i << ": " 
+    //                 << sequence[i].real() << " + " 
+    //                 << sequence[i].imag() << "j\n";
+    // }
+    //ujjwal debug ends
+    
     // For the current Tx antenna, keep track of all the LSEs at all Rx ports.
     modular_re_buffer_reader<cf_t, srs_constants::max_nof_rx_ports> port_lse(nof_rx_ports, sequence_length);
+
+    // std::string filename = "iq_dump_" + std::to_string(ts) + ".txt";
+    // std::ofstream dump_file(filename);
+    // if (!dump_file.is_open()) {
+    //   std::cerr << "Failed to open output file: " << filename << "\n";
+    // }
 
     // Iterate receive ports.
     for (unsigned i_rx_port_index = 0; i_rx_port_index != nof_rx_ports; ++i_rx_port_index) {
@@ -149,6 +186,17 @@ srs_estimator_result srs_estimator_generic_impl::estimate(const resource_grid_re
         // Extract received sequence.
         static_vector<cf_t, max_seq_length> rx_sequence(info.sequence_length);
         grid.get(rx_sequence, i_rx_port, i_symbol, info.mapping_initial_subcarrier, info.comb_size);
+        //ujjwal debug
+        // for (size_t i = 0; i < rx_sequence.size(); ++i) {
+        //   unsigned k = info.mapping_initial_subcarrier + i * info.comb_size;
+        //   dump_file << std::scientific << std::setprecision(15);
+        //   dump_file << "Port " << i_rx_port_index
+        //             << ", Symbol " << i_symbol
+        //             << ", Subcarrier " << k
+        //             << ": " << rx_sequence[i].real()
+        //             << " + " << rx_sequence[i].imag() << "j\n";
+        // }
+        //ujjwal debug ends
 
         // Since the same SRS sequence is sent over all symbols, it makes sense to average out the noise. When pilots
         // are interleaved, we need to keep track of two different sets of REs.
@@ -180,20 +228,41 @@ srs_estimator_result srs_estimator_generic_impl::estimate(const resource_grid_re
       }
 
       port_lse.set_slice(i_rx_port_index, mean_lse);
-    }
-    // Estimate TA.
-    time_alignment_measurement ta_meas = deps.ta_estimator->estimate(port_lse, info.comb_size, scs, max_ta);
 
-    // Combine time alignment measurements.
+    }
+    // filename = "port_lse_"+ std::to_string(ts) + ".txt";
+    // port_lse.dump_to_file(filename);
+
+
+  
+    // Estimate TA.
+    time_alignment_measurement ta_meas = deps.ta_estimator->estimate_with_logfile(port_lse, info.comb_size, scs, max_ta, std::to_string(ts), config.rnti);
+    
+    // double ta_sched_time_s = deps.ta_source->get_cumulative_ta_time(config.ue_id); // implement this
+
+    // Accumulate time alignment.
     result.time_alignment.time_alignment += ta_meas.time_alignment;
-    result.time_alignment.min        = std::max(result.time_alignment.min, ta_meas.min);
-    result.time_alignment.max        = std::min(result.time_alignment.max, ta_meas.max);
-    result.time_alignment.resolution = std::max(result.time_alignment.resolution, ta_meas.resolution);
+    // Combine time alignment measurements.
+    // dump_file << std::scientific << std::setprecision(15);
+    // dump_file << "Time alignment for antenna port " << i_antenna_port
+    //           << ": " << ta_meas.time_alignment << " seconds\n";
+    // dump_file.close();
   }
 
   // Average time alignment across all paths.
   result.time_alignment.time_alignment /= nof_antenna_ports;
 
+
+
+  
+  // std::cout << std::scientific << std::setprecision(15);
+  // std::cout << "[ToA] Time: "
+  //           << std::put_time(tm, "%F %T") << "." << std::setw(6) << std::setfill('0') << micros.count();
+  // std::cout<<" Sfn:"<<config.slot.sfn();
+  // std::cout<<" Sfn:"<<config.slot.sfn();
+  // std::cout<<" Slot:"<<config.slot.slot_index();
+  // std::cout<<" ToA : "<<result.time_alignment.time_alignment;
+  // std::cout<<" Distance : "<<result.time_alignment.time_alignment*3e8<<std::endl;
   float noise_var = 0;
   // Compensate time alignment and estimate channel coefficients.
   for (unsigned i_rx_port = 0; i_rx_port != nof_rx_ports; ++i_rx_port) {

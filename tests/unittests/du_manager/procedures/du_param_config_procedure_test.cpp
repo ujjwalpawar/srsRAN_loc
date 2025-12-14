@@ -23,6 +23,7 @@
 #include "../du_manager_test_helpers.h"
 #include "srsran/du/du_cell_config_helpers.h"
 #include "srsran/du/du_high/du_manager/du_manager_factory.h"
+#include "srsran/ran/srs/srs_configuration.h"
 #include "srsran/support/executors/task_worker.h"
 #include <gtest/gtest.h>
 
@@ -77,6 +78,44 @@ static du_param_config_request make_dummy_request(span<const du_cell_config> cel
   return req;
 }
 
+static mac_cell_positioning_measurement_request make_positioning_request()
+{
+  mac_cell_positioning_measurement_request req;
+  req.rnti = to_rnti(0x4601);
+  req.imeisv.emplace("001010123456789");
+
+  srs_config::srs_resource resource{};
+  resource.id.ue_res_id                 = srs_config::srs_res_id::MIN_SRS_RES_ID;
+  resource.id.cell_res_id               = 0;
+  resource.nof_ports                    = srs_config::srs_resource::nof_srs_ports::port1;
+  resource.res_mapping.start_pos        = 0;
+  resource.res_mapping.nof_symb         = srs_nof_symbols::n1;
+  resource.res_mapping.rept_factor      = srs_nof_symbols::n1;
+  resource.freq_domain_pos              = 0;
+  resource.freq_domain_shift            = 0;
+  resource.freq_hop.b_srs               = 0;
+  resource.freq_hop.b_hop               = 0;
+  resource.freq_hop.c_srs               = 0;
+  resource.tx_comb.size                 = tx_comb_size::n2;
+  resource.tx_comb.tx_comb_offset       = 0;
+  resource.tx_comb.tx_comb_cyclic_shift = 0;
+  resource.sequence_id                  = 0;
+  resource.grp_or_seq_hop               = srs_group_or_sequence_hopping::neither;
+  resource.res_type                     = srs_resource_type::periodic;
+  resource.periodicity_and_offset =
+      srs_config::srs_periodicity_and_offset{srs_periodicity::sl20, 0};
+  req.srs_to_meas.srs_res_list.push_back(resource);
+
+  srs_config::srs_resource_set set;
+  set.id = srs_config::srs_res_set_id::MIN_SRS_RES_SET_ID;
+  set.srs_res_id_list.push_back(resource.id.ue_res_id);
+  set.res_type.emplace<srs_config::srs_resource_set::periodic_resource_type>();
+  set.srs_res_set_usage = srs_usage::codebook;
+  req.srs_to_meas.srs_res_set_list.push_back(set);
+
+  return req;
+}
+
 class du_manager_du_config_update_test : public du_manager_procedure_tester, public ::testing::Test
 {};
 
@@ -92,5 +131,20 @@ TEST_F(du_manager_du_config_update_test, when_sib1_change_required_then_mac_is_r
   // F1AP received the DU config request.
   ASSERT_TRUE(dependencies.f1ap.last_du_cfg_req);
 
+  ASSERT_TRUE(resp.success);
+}
+
+TEST_F(du_manager_du_config_update_test, when_only_positioning_requested_then_only_mac_is_reconfigured)
+{
+  du_param_config_request req;
+  req.cells.resize(1);
+  req.cells[0].nr_cgi      = cell_cfgs[0].nr_cgi;
+  req.cells[0].positioning = make_positioning_request();
+
+  du_param_config_response resp = du_mng->handle_operator_config_request(req);
+
+  ASSERT_TRUE(dependencies.mac.mac_cell.last_cell_recfg_req.has_value());
+  ASSERT_TRUE(dependencies.mac.mac_cell.last_cell_recfg_req->positioning.has_value());
+  ASSERT_FALSE(dependencies.f1ap.last_du_cfg_req.has_value());
   ASSERT_TRUE(resp.success);
 }

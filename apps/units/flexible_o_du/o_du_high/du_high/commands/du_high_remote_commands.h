@@ -45,4 +45,20 @@ public:
   error_type<std::string> execute(const nlohmann::json& json) override;
 };
 
+/// Remote command that triggers a positioning measurement.
+class positioning_trigger_remote_command : public app_services::remote_command
+{
+public:
+  explicit positioning_trigger_remote_command(srs_du::du_configurator& configurator_) : configurator(configurator_) {}
+
+  std::string_view get_name() const override { return "positioning_request"; }
+
+  std::string_view get_description() const override { return "Triggers a positioning measurement on the DU"; }
+
+  error_type<std::string> execute(const nlohmann::json& json) override;
+
+private:
+  srs_du::du_configurator& configurator;
+};
+
 } // namespace srsran

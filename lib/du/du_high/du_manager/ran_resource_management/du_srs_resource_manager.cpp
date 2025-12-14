@@ -23,6 +23,7 @@
 #include "du_srs_resource_manager.h"
 #include "du_ue_resource_config.h"
 #include "srsran/ran/srs/srs_bandwidth_configuration.h"
+#include <iostream>
 
 using namespace srsran;
 using namespace srs_du;
@@ -100,6 +101,7 @@ static srs_config build_default_srs_cfg(const du_cell_config& default_cell_cfg)
 
   // If the DU is not configured for periodic SRS, we don't need to update the SRS configuration.
   if (not default_cell_cfg.srs_cfg.srs_period.has_value()) {
+    std::cout<<"SRS periodicity is not configured. SRS configuration will not be updated"<<std::endl;
     return default_cell_cfg.ue_ded_serv_cell_cfg.ul_config.value().init_ul_bwp.srs_cfg.value();
   }
 

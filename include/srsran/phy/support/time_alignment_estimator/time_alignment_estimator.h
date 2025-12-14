@@ -88,6 +88,18 @@ public:
   /// \remark An assertion is triggered if the number of symbols times the stride exceed the frequency domain buffer.
   virtual time_alignment_measurement
   estimate(const re_buffer_reader<cf_t>& symbols, unsigned stride, subcarrier_spacing scs, double max_ta = 0.0) = 0;
+
+    /// \brief Estimates the time alignment from frequency domain symbols from one or more antenna ports.
+  /// \param[in] symbols Complex frequency domain symbols (one slice for each antenna port).
+  /// \param[in] stride  Distance between the complex symbols within an OFDM symbol.
+  /// \param[in] scs     Subcarrier spacing.
+  /// \param[in] max_ta  Maximum absolute time alignment measurement if it is not zero.
+  /// \param[in] filename  Filename to save the symbols
+  /// \param[in] rnti    C-RNTI of the UE being estimated
+  /// \return The measured time alignment.
+  /// \remark An assertion is triggered if the number of symbols times the stride exceed the frequency domain buffer.
+  virtual time_alignment_measurement
+  estimate_with_logfile(const re_buffer_reader<cf_t>& symbols, unsigned stride, subcarrier_spacing scs, double max_ta = 0.0, std::string filename=" ", uint16_t rnti = 0) = 0;
 };
 
 } // namespace srsran

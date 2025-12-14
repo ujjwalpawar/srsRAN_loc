@@ -29,12 +29,15 @@
 #include "../support/pdcch/pdcch_mapping.h"
 #include "../support/pdsch/pdsch_default_time_allocation.h"
 #include "../support/pdsch/pdsch_resource_allocation.h"
+#include "srsran/scheduler/ue_identity_tracker.h"
 #include "../support/sch_pdu_builder.h"
 #include "srsran/ran/band_helper.h"
 #include "srsran/ran/resource_allocation/resource_allocation_frequency.h"
 #include "srsran/ran/sch/tbs_calculator.h"
 #include "srsran/support/compiler.h"
-
+#include <iostream>
+#include "srsran/scheduler/ta_shared.h"
+#include "srsran/scheduler/ta_ce_tracker.h"
 using namespace srsran;
 
 unsigned srsran::get_msg3_delay(const pusch_time_domain_resource_allocation& pusch_td_res_alloc,
@@ -742,7 +745,24 @@ void ra_scheduler::fill_rar_grant(cell_resource_allocator&         res_alloc,
     // Determine TPC command based on Table 8.2-2, TS 38.213.
     msg3_info.tpc     = (get_pusch_cfg().msg3_delta_power.to_int() + 6) / 2;
     msg3_info.csi_req = false;
-
+    long long unsigned int ts = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+    uint16_t tc_rnti_val = to_value(msg3_info.temp_crnti);
+    set_last_ta_with_crnti(ts, static_cast<int>(msg3_info.ta), true, tc_rnti_val);
+    std::cout<<"RAR TA"<<msg3_info.ta<<std::endl;
+    
+    // Track RACH event with RA-RNTI, TC-RNTI, and initial TA
+    // This is best-effort tracking and should not affect RACH procedure
+    try {
+      uint16_t ra_rnti = to_value(rar_request.ra_rnti);
+      uint16_t tc_rnti = to_value(msg3_info.temp_crnti);
+      ue_identity_tracker::register_rach(ra_rnti, tc_rnti, static_cast<int>(msg3_info.ta), ts);
+    } catch (...) {
+      // Silently ignore - this is debug/tracking feature only
+    }
+    
+    // Reset tracker state on RACH completion (RAR send) to start fresh tracking for this UE connection.
+    // This clears any stale CE/HARQ entries from previous RACH sequences.
+    ta_ce_tracker::reset_tracker();
     // Allocate Msg3 RBs.
     const ofdm_symbol_range& symbols = pusch_td_alloc_list[msg3_candidate.pusch_td_res_index].symbols;
     msg3_alloc.ul_res_grid.fill(grant_info{get_dl_bwp_cfg().scs, symbols, msg3_candidate.crbs});

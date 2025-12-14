@@ -24,6 +24,11 @@
 #include "srsran/scheduler/resource_grid_util.h"
 #include "srsran/scheduler/result/pdsch_info.h"
 #include "srsran/scheduler/result/pusch_info.h"
+#include <iostream>
+#include "srsran/scheduler/ta_ce_tracker.h"
+#include "srsran/scheduler/ta_shared.h"
+#include "srsran/scheduler/ue_identity_tracker.h"
+#include <unordered_map>
 
 using namespace srsran;
 using namespace harq_utils;
@@ -653,7 +658,83 @@ dl_harq_process_handle::status_update dl_harq_process_handle::dl_ack_info(mac_ha
 
     // Update HARQ state
     bool final_ack = impl->chosen_ack == mac_harq_ack_report_status::ack;
+    // Log final HARQ ACK/NACK only if this HARQ was associated with a tracked CE (e.g. TA CMD).
+    try {
+      unsigned h_id_uint = static_cast<unsigned>(fmt::underlying(impl->h_id));
+      if (srsran::ta_ce_tracker::is_tracked_harq(h_id_uint)) {
+        // Print numeric h_id and LC list.
+        std::cout << "[HARQ] ACK_INFO: h_id=" << h_id_uint << " final_ack=" << (final_ack ? "ACK" : "NACK")
+                  << " LCs=[";
+        for (const auto& lc : impl->prev_tx_params.lc_sched_info) {
+          std::cout << static_cast<int>(lc.lcid.value()) << ":" << lc.sched_bytes.value() << ",";
+        }
+        std::cout << "]" << std::endl;
+        // Also print compact TA confirmation information if available from tracker.
+        try {
+          auto ce_infos = srsran::ta_ce_tracker::get_tracked_ce_infos(h_id_uint);
+          // Consolidate CE infos by LCID and keep the last TA_CMD observed for each LCID.
+          // This avoids applying multiple TA deltas when multiple CE entries were linked to the same HARQ.
+          std::unordered_map<int, std::pair<int,int>> ce_map; // lcid -> (tag_id, ta_cmd)
+          for (const auto &info : ce_infos) {
+            int lcid = info.first;
+            int tag_id = info.second.first;
+            int ta_cmd = info.second.second;
+            // keep the last seen ta_cmd for this lcid (overwrite previous)
+            ce_map[lcid] = std::make_pair(tag_id, ta_cmd);
+          }
+          for (const auto &kv : ce_map) {
+            int lcid = kv.first;
+            int tag_id = kv.second.first;
+            int ta_cmd = kv.second.second;
+            std::cout << "[TA_CONF] LCID=" << lcid << " TAG_ID=" << static_cast<unsigned>(tag_id)
+                      << " TA_CMD=" << ta_cmd << " h_id=" << h_id_uint << " final_ack="
+                      << (final_ack ? "ACK" : "NACK") << std::endl;
+
+            // If this TA CE was ACKed, apply delta to shared TA state: delta = TA_CMD - 31
+            if (final_ack) {
+              try {
+                const long long unsigned int ts = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+                const int delta = static_cast<int>(ta_cmd) - 31; // ta_cmd_offset_zero = 31
+                uint16_t c_rnti = to_value(impl->rnti);
+                // set_last_ta will add delta to stored TA when is_rar_ta=false
+                srsran::set_last_ta_with_crnti(ts, delta, false, c_rnti);
+                // Print the updated TA for convenience
+                long long unsigned int prev_ts; int current_ta; bool was_rar;
+                if (srsran::get_last_ta(prev_ts, current_ta, was_rar)) {
+                  std::cout << "[TA_STATE] time=" << ts << " TA=" << current_ta << " (applied delta=" << delta
+                            << ")" << std::endl;
+                }
+                
+                // Track TA CE ACK event in UE identity tracker
+                // Pass accumulated TA (current_ta) for tracking, not just delta
+                long long unsigned int dummy_ts; int accumulated_ta; bool dummy_rar;
+                if (srsran::get_last_ta(dummy_ts, accumulated_ta, dummy_rar)) {
+                  ue_identity_tracker::register_ta_ce_ack(c_rnti, delta, accumulated_ta, ts);
+                }
+              } catch (...) {
+                // best-effort
+              }
+            }
+          }
+        } catch (...) {
+          // best-effort
+        }
+      }
+    } catch (...) {
+      // best-effort
+    }
+
     harq_repo->handle_ack(*impl, final_ack);
+
+    // If this HARQ was tracked as carrying a CE of interest, remove tracking now that final decision arrived.
+    try {
+      unsigned h_id_uint = static_cast<unsigned>(fmt::underlying(impl->h_id));
+      if (srsran::ta_ce_tracker::is_tracked_harq(h_id_uint)) {
+        srsran::ta_ce_tracker::untrack_harq(h_id_uint);
+      }
+    } catch (...) {
+      // best-effort
+    }
 
     return final_ack ? status_update::acked : status_update::nacked;
   }

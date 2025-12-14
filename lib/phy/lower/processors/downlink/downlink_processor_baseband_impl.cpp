@@ -27,7 +27,7 @@
 #include "srsran/srsvec/compare.h"
 #include "srsran/srsvec/dot_prod.h"
 #include "srsran/srsvec/zero.h"
-
+#include <iostream>
 using namespace srsran;
 
 downlink_processor_baseband_impl::downlink_processor_baseband_impl(
@@ -160,8 +160,8 @@ baseband_gateway_transmitter_metadata downlink_processor_baseband_impl::process(
       unsigned i_symbol = i_symbol_sf % nof_symbols_per_slot;
 
       // Create slot point.
-      slot_point slot(to_numerology_value(scs), i_slot);
-
+      slot_point slot(to_numerology_value(scs), i_slot);  
+ 
       // Detect slot boundary.
       if ((!last_notified_slot.has_value() || (slot > last_notified_slot.value())) && (i_symbol == 0)) {
         // Notify slot boundary.

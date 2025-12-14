@@ -390,8 +390,8 @@ TEST_F(srs_positioning_scheduler_test, when_connected_ue_positioning_is_requeste
 
   // Positioning requested.
   auto& ue_srs_cfg = ues[to_du_ue_index(0)].ue_cfg_dedicated()->pcell_cfg().init_bwp().ul_ded->srs_cfg.value();
-  this->srs_sched.handle_positioning_measurement_request(
-      positioning_measurement_request{rnti, to_du_ue_index(0), to_du_cell_index(0), ue_srs_cfg});
+  this->srs_sched.handle_positioning_measurement_request(positioning_measurement_request{
+      rnti, to_du_ue_index(0), std::nullopt, to_du_cell_index(0), ue_srs_cfg});
   ASSERT_TRUE(is_positioning_being_requested());
 
   // Positioning stops being requested.
@@ -410,7 +410,7 @@ TEST_F(srs_positioning_scheduler_test, when_neighbor_cell_ue_positioning_is_requ
       cell_cfg.tdd_cfg_common);
   auto& ue_srs_cfg = dummy_ue_req.cfg.cells.value().front().serv_cell_cfg.ul_config.value().init_ul_bwp.srs_cfg.value();
   this->srs_sched.handle_positioning_measurement_request(
-      positioning_measurement_request{pos_rnti, std::nullopt, to_du_cell_index(0), ue_srs_cfg});
+      positioning_measurement_request{pos_rnti, std::nullopt, std::nullopt, to_du_cell_index(0), ue_srs_cfg});
 
   // Positioning is being requested.
   const auto* pdu = this->next_srs_info(pos_rnti);

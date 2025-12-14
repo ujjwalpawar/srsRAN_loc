@@ -24,7 +24,11 @@
 
 #include "srsran/adt/complex.h"
 #include "srsran/adt/tensor.h"
-
+#include <iostream>
+#include <array>
+#include <span>
+#include <complex>
+#include <fstream>  // for std::ofstream
 /// \file
 /// \brief Interfaces and implementations of a Resource Element buffer.
 ///
@@ -346,6 +350,48 @@ public:
                   nof_slices);
     srsran_assert(!data[i_slice].empty(), "Data for slice {} is empty.", i_slice);
     return data[i_slice];
+  }
+  void print() const {
+    std::cout << "Number of slices: " << nof_slices << std::endl;
+    std::cout << "Number of resource elements: " << nof_re << std::endl;
+    for (unsigned i = 0; i < nof_slices; ++i) {
+        std::cout << "Slice " << i << ": ";
+        if (data[i].empty()) {
+            std::cout << "Empty slice" << std::endl;
+        } else {
+            std::cout << "Elements: ";
+            for (const auto& val : data[i]) {
+                std::cout << "(" << val.real() << ", " << val.imag() << ") ";
+            }
+            std::cout << std::endl;
+        }
+    }
+}
+
+  void dump_to_file(const std::string& filename) const {
+    std::ofstream file(filename);
+
+    if (!file.is_open()) {
+        std::cerr << "Failed to open file for writing: " << filename << std::endl;
+        return;
+    }
+
+    file << "Number of slices: " << nof_slices << std::endl;
+    file << "Number of resource elements: " << nof_re << std::endl;
+    for (unsigned i = 0; i < nof_slices; ++i) {
+        file << "Slice " << i << ": ";
+        if (data[i].empty()) {
+            file << "Empty slice" << std::endl;
+        } else {
+            file << "Elements: ";
+            for (const auto& val : data[i]) {
+                file << "(" << val.real() << ", " << val.imag() << ") ";
+            }
+            file << std::endl;
+        }
+    }
+
+    file.close();
   }
 
 private:

@@ -5,6 +5,8 @@
 #include "srsran/mac/mac_ue_configurator.h"
 #include "srsran/ran/du_types.h"
 #include "srsran/ran/slot_point.h"
+#include <optional>
+#include <string>
 
 namespace srsran {
 
@@ -24,6 +26,8 @@ struct mac_cell_positioning_measurement_request {
   /// UE identifier in case the SRSConfig belongs to a UE connected to this DU. Otherwise, it is empty.
   std::optional<du_ue_index_t> ue_index;
   std::optional<rnti_t>        rnti;
+  /// IMEISV associated with the UE (if available) to derive deterministic positioning RNTIs.
+  std::optional<std::string> imeisv;
   /// SRS resources to measure.
   srs_config srs_to_meas;
 };

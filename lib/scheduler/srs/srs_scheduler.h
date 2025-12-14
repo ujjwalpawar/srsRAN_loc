@@ -27,6 +27,7 @@ namespace srsran {
 struct cell_resource_allocator;
 class ue_cell_configuration;
 struct positioning_measurement_request;
+class srs_schedule_exporter;
 
 /// SRS scheduling interface, which handles the scheduling of SRS opportunities.
 class srs_scheduler
@@ -61,6 +62,9 @@ public:
   /// \param[in] Cell where the positioning measurement takes place.
   /// \param[in] Identifier of the measurement procedure that is on-going.
   virtual void handle_positioning_measurement_stop(du_cell_index_t cell_index, rnti_t pos_rnti) = 0;
+
+  /// Optionally registers an SRS schedule exporter to observe upcoming opportunities.
+  virtual void set_schedule_exporter(srs_schedule_exporter* exporter) = 0;
 };
 
 } // namespace srsran

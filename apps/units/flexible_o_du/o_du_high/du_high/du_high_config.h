@@ -405,7 +405,7 @@ struct du_high_unit_srs_config {
   /// SRS-Config, TS 38.331. Values: {1, 2, 4}.
   unsigned nof_symbols = 1;
   /// \c Transmission comb number, \c transmissionComb, \c SRS-Resource \c SRS-Config, TS 38.331. Values: {2, 4}.
-  unsigned tx_comb = 4;
+  unsigned tx_comb = 2;
   /// Defines the Cyclic Shift (CS) reuse factor for the SRS resources.
   /// \remark With 2 or 4 antenna ports, different cyclic shifts are used by the different antennas. This parameter
   /// defines how many UEs can be multiplexed in the same symbols and RBs by exploiting different cyclic shifts.

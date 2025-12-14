@@ -23,15 +23,19 @@
 #pragma once
 
 #include "srsran/ran/du_types.h"
+#include <optional>
+#include <string>
 
 namespace srsran {
 
 struct positioning_measurement_request {
   /// \brief This RNTI can correspond to either a real connected UE C-RNTI or an RNTI assigned just for positioning
   /// measurement.
-  rnti_t pos_rnti;
+  rnti_t pos_rnti = rnti_t::INVALID_RNTI;
   /// In case the positioning measurement is for a currently connected UE, we also define the UE index.
   std::optional<du_ue_index_t> ue_index;
+  /// IMEISV of the UE whose measurements are requested (when known).
+  std::optional<std::string> imeisv;
   /// Cell at which the positioning is to be made.
   du_cell_index_t cell_index;
   /// SRS resources to measure.

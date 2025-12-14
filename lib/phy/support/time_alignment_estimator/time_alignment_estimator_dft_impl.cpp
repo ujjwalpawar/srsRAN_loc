@@ -22,7 +22,7 @@
 
 #include "time_alignment_estimator_dft_impl.h"
 #include "srsran/adt/bounded_bitset.h"
-#include "srsran/adt/complex.h"
+#include "srsran/adt/complex.h" 
 #include "srsran/adt/span.h"
 #include "srsran/phy/support/re_buffer.h"
 #include "srsran/phy/support/time_alignment_estimator/time_alignment_measurement.h"
@@ -33,8 +33,136 @@
 #include "srsran/srsvec/modulus_square.h"
 #include <algorithm>
 #include <utility>
-
+#include <iostream>
+#include <iostream>
+#include <fstream>
+#include <iomanip>  // For std::scientific and std::setprecision
+#include <unistd.h>
+#include <fcntl.h>
+#include "srsran/scheduler/ta_shared.h"
+#include "srsran/scheduler/ue_identity_tracker.h"
 using namespace srsran;
+
+// Async UDP sender implementation
+async_udp_sender::async_udp_sender(const std::string& ip, uint16_t port) {
+  // Create UDP socket
+  sockfd_ = socket(AF_INET, SOCK_DGRAM, 0);
+  if (sockfd_ < 0) {
+    std::cerr << "[UDP_SENDER] Failed to create socket" << std::endl;
+    return;
+  }
+  
+  // Set socket to non-blocking
+  int flags = fcntl(sockfd_, F_GETFL, 0);
+  fcntl(sockfd_, F_SETFL, flags | O_NONBLOCK);
+  
+  // Configure destination address
+  std::memset(&dest_addr_, 0, sizeof(dest_addr_));
+  dest_addr_.sin_family = AF_INET;
+  dest_addr_.sin_port = htons(port);
+  if (inet_pton(AF_INET, ip.c_str(), &dest_addr_.sin_addr) <= 0) {
+    std::cerr << "[UDP_SENDER] Invalid IP address: " << ip << std::endl;
+    close(sockfd_);
+    sockfd_ = -1;
+    return;
+  }
+  
+  // Start sender thread
+  sender_thread_obj_ = std::thread(&async_udp_sender::sender_thread, this);
+  std::cout << "[UDP_SENDER] Initialized: " << ip << ":" << port << std::endl;
+}
+
+async_udp_sender::~async_udp_sender() {
+  running_ = false;
+  queue_cv_.notify_all();
+  
+  if (sender_thread_obj_.joinable()) {
+    sender_thread_obj_.join();
+  }
+  
+  if (sockfd_ >= 0) {
+    close(sockfd_);
+  }
+  
+  std::cout << "[UDP_SENDER] Shutdown. Dropped packets: " << dropped_packets_.load() << std::endl;
+}
+
+bool async_udp_sender::send_async(const iq_udp_packet& packet) {
+  std::unique_lock<std::mutex> lock(queue_mutex_);
+  
+  // Drop packet if queue is full
+  if (packet_queue_.size() >= MAX_QUEUE_SIZE) {
+    dropped_packets_++;
+    return false;
+  }
+  
+  packet_queue_.push(packet);
+  queue_size_ = packet_queue_.size();
+  lock.unlock();
+  
+  queue_cv_.notify_one();
+  return true;
+}
+
+void async_udp_sender::sender_thread() {
+  while (running_) {
+    std::unique_lock<std::mutex> lock(queue_mutex_);
+    
+    // Wait for packets or shutdown
+    queue_cv_.wait(lock, [this] { return !packet_queue_.empty() || !running_; });
+    
+    if (!running_ && packet_queue_.empty()) {
+      break;
+    }
+    
+    if (packet_queue_.empty()) {
+      continue;
+    }
+    
+    // Get packet from queue
+    iq_udp_packet packet = packet_queue_.front();
+    packet_queue_.pop();
+    queue_size_ = packet_queue_.size();
+    lock.unlock();
+    
+    // Send without blocking main thread
+    if (sockfd_ >= 0) {
+      // Calculate total size: header + correlation data + IQ data
+      size_t total_size = sizeof(iq_udp_packet_header) + 
+                         packet.correlation.size() * sizeof(float) +
+                         packet.iq_samples.size() * sizeof(float);
+      
+      // Allocate buffer for complete packet
+      std::vector<uint8_t> buffer(total_size);
+      uint8_t* ptr = buffer.data();
+      
+      // Copy header
+      std::memcpy(ptr, &packet.header, sizeof(iq_udp_packet_header));
+      ptr += sizeof(iq_udp_packet_header);
+      
+      // Copy correlation data
+      if (!packet.correlation.empty()) {
+        std::memcpy(ptr, packet.correlation.data(), packet.correlation.size() * sizeof(float));
+        ptr += packet.correlation.size() * sizeof(float);
+      }
+      
+      // Copy IQ samples
+      if (!packet.iq_samples.empty()) {
+        std::memcpy(ptr, packet.iq_samples.data(), packet.iq_samples.size() * sizeof(float));
+      }
+      
+      ssize_t sent = sendto(sockfd_, buffer.data(), total_size, 0,
+                           (struct sockaddr*)&dest_addr_, sizeof(dest_addr_));
+      if (sent < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+        // Only log persistent errors
+        static uint64_t error_count = 0;
+        if (++error_count % 1000 == 0) {
+          std::cerr << "[UDP_SENDER] Send error (count: " << error_count << ")" << std::endl;
+        }
+      }
+    }
+  }
+}
 
 /// \brief Estimates a fractional sample delay from samples around a maximum.
 ///
@@ -116,6 +244,7 @@ time_alignment_measurement time_alignment_estimator_dft_impl::estimate(const re_
                                                                        subcarrier_spacing              scs,
                                                                        double                          max_ta)
 {
+
   srsran_assert(mask.count() == symbols.get_slice(0).size(),
                 "The number of complex symbols per port {} does not match the mask size {}.",
                 symbols.get_slice(0).size(),
@@ -165,20 +294,88 @@ time_alignment_measurement time_alignment_estimator_dft_impl::estimate(span<cons
                                                                        subcarrier_spacing              scs,
                                                                        double                          max_ta)
 {
+
   modular_re_buffer_reader<cf_t, 1> symbols_view(1, symbols.size());
   symbols_view.set_slice(0, symbols);
 
   return estimate(symbols_view, mask, scs, max_ta);
 }
 
-time_alignment_measurement time_alignment_estimator_dft_impl::estimate(const re_buffer_reader<cf_t>& symbols,
+time_alignment_measurement time_alignment_estimator_dft_impl::estimate_with_logfile(const re_buffer_reader<cf_t>& symbols,
                                                                        unsigned                      stride,
                                                                        srsran::subcarrier_spacing    scs,
-                                                                       double                        max_ta)
-{
+                                                                       double                        max_ta,
+                                                                      std::string                   filename,
+                                                                      uint16_t                      rnti)
+{ //ujjwal : this esitmate function is called for srs/pucch dmrs 
+  // Extract timestamp from filename parameter (which contains just the timestamp)
+  uint64_t timestamp_ns = 0;
+  try {
+    // filename is already just the timestamp string
+    timestamp_ns = std::stoull(filename);
+  } catch (...) {
+    // If parsing fails, use current time
+    timestamp_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+  }
+  
+  // Get IMEISV directly from C-RNTI (passed as parameter)
+  std::string imeisv_str = "unknown";
+  uint16_t c_rnti_val = rnti;
+  int ta_value = 0;
+  uint64_t ta_update_time_ns = 0;
+  bool ta_is_rar = false;
+  
+  // Try to get IMEISV from C-RNTI
+  if (c_rnti_val != 0) {
+    if (!ue_identity_tracker::get_imeisv_by_crnti(c_rnti_val, imeisv_str)) {
+      imeisv_str = "unknown_crnti_" + std::to_string(c_rnti_val);
+    }
+
+    long long unsigned int ta_timestamp_tmp = 0;
+    int                    ta_value_tmp     = 0;
+    bool                   is_rar_tmp       = false;
+    uint16_t               ta_crnti         = 0;
+    if (get_last_ta_with_crnti(ta_timestamp_tmp, ta_value_tmp, is_rar_tmp, ta_crnti) && ta_crnti == c_rnti_val) {
+      ta_value = ta_value_tmp;
+      ta_update_time_ns = ta_timestamp_tmp;
+      ta_is_rar = is_rar_tmp;
+    }
+  }
+  
+  // Lazy initialize UDP sender (only once)
+  static const char* UDP_IP = std::getenv("SRSRAN_IQ_UDP_IP");
+  static const char* UDP_PORT = std::getenv("SRSRAN_IQ_UDP_PORT");
+  if (UDP_IP && UDP_PORT && !udp_sender_) {
+    try {
+      udp_sender_ = std::make_unique<async_udp_sender>(UDP_IP, std::atoi(UDP_PORT));
+    } catch (...) {
+      std::cerr << "[UDP_SENDER] Failed to initialize" << std::endl;
+    }
+  }
+  
+  // filename = "iq_data_tdft_correlation_" + imeisv_str + "_" + filename + ".txt";
+  // std::ofstream file(filename);
   unsigned       nof_symbols = symbols.get_nof_re();
   dft_processor& idft        = get_idft(nof_symbols);
+  
+  // Store all frequency-domain symbols from all antenna slices for UDP transmission
+  std::vector<std::vector<cf_t>> all_symbols_freq;
+  
+  // Write IMEISV and TA info to file
+  // file << "IMEISV=" << imeisv_str << std::endl;
+  // try {
+  //     long long unsigned int time_now;
+  //     int new_ta;
+  //     bool is_rar_ta;
 
+  //     if (get_last_ta(time_now, new_ta, is_rar_ta)) {
+  //         file << "Time when t_A was updated =" << time_now << " new_t_a=" << new_ta <<" is rar ta="<< is_rar_ta << std::endl;
+  //       }
+  //     }
+  //    catch (...) {
+  //     /* ignore */
+  // }
   // Get IDFT input buffer.
   span<cf_t> channel_observed_freq = idft.get_input();
 
@@ -187,18 +384,76 @@ time_alignment_measurement time_alignment_estimator_dft_impl::estimate(const re_
 
   // Prepare correlation temporary buffer.
   span<float> correlation = span<float>(idft_abs2).first(idft.get_size());
-
+  //ujjwal debug start
+  // std::cout<<"correlation size "<<correlation.size()<<std::endl;
+  // std::cout<<"idft size "<<channel_observed_freq.size()<<std::endl; 
+  // std::cout<<"nof symbols "<<nof_symbols<<std::endl;
+  // std::cout<<"zeros "<<channel_observed_freq.size() - nof_symbols<<std::endl;
+  //ujjwal debug end
   // Correlate each of the symbol slices.
   for (unsigned i_in = 0, max_in = symbols.get_nof_slices(); i_in != max_in; ++i_in) {
+
     // Get view of the input symbols for the given slice.
     span<const cf_t> symbols_in = symbols.get_slice(i_in);
+    
+    //ujjwal debug start
+    
+    // std::cout<<"symbols"<<std::endl;
+    // std::cout << "Slice " << i_in<< ": ";
+    // if (symbols_in.empty()) {
+    //     std::cout << "Empty slice" << std::endl;
+    // } else {
+    //     std::cout << "Elements: ";
+    //     for (const auto& val : symbols_in) {
+    //         std::cout << "(" << val.real() << ", " << val.imag() << ") ";
+    //     }
+    //     std::cout <<std::flush<< std::endl;
+    // }
+    
+    //save into file
 
+    // file << "symbols" << std::endl;
+    // file << "Slice " << i_in<< ": ";
+
+    // if (symbols_in.empty()) {
+    //     file << "Empty slice" << std::endl;
+    // } else {
+    //     file << "Elements: ";
+    // }
+    // for (const auto& val : symbols_in) {
+
+    //     file << "(" << val.real() << ", " << val.imag() << ") ";
+    // }
+    // file << std::endl;
+    
+    // Store frequency domain symbols from all slices for UDP transmission
+    std::vector<cf_t> slice_symbols(symbols_in.begin(), symbols_in.end());
+    all_symbols_freq.push_back(slice_symbols);
+    
+    //ujjwal debug end
     // Write the symbols in their corresponding positions.
     srsvec::copy(channel_observed_freq.first(nof_symbols), symbols_in);
 
     // Perform correlation in frequency domain.
     span<const cf_t> channel_observed_time = idft.run();
+    // std::cout<<"channel_observed time size "<<channel_observed_time.size()<<std::endl;
+    // std::cout<<"channel_observed time "<<channel_observed_time[1023]<<std::endl;
+    //ujjwal debug start
+    // file << "channel_observed time" << std::endl;
+    // file << "Slice " << i_in << ": ";
+    // if (channel_observed_time.empty()) {
+    //     file << "Empty slice" << std::endl;
+    // } else {
+    //     file << "Elements: ";
+    // }
+    // for (const auto& val : channel_observed_time) {
+    //     count++;
+    //     file << "(" << val.real() << ", " << val.imag() << ") ";
+    // }
+    // file << std::endl;
+    // std::cout<<"count "<<count<<std::endl;
 
+    //ujjwal debug start
     // Calculate the absolute square of the correlation.
     if (i_in == 0) {
       srsvec::modulus_square(correlation, channel_observed_time);
@@ -207,9 +462,134 @@ time_alignment_measurement time_alignment_estimator_dft_impl::estimate(const re_
       srsvec::modulus_square_and_add(correlation, channel_observed_time, correlation);
     }
   }
+  //ujjwal debug start
+  /*
+  std::cout<<"correlation"<<std::endl;
+        for (const auto& val : correlation) {
+            std::cout << val << ", " ;
+        }
+        std::cout << std::endl;
+    
+  
+  std::cout<<"stride"<<stride<<std::endl;
+  std::cout<<"scs"<<scs_to_khz(scs)<<std::endl;
+  std::cout<<"max_ta"<<max_ta<<std::endl;
+  */
+  
+  // Send correlation and frequency-domain symbols from all slices via UDP (non-blocking, before file I/O)
+  if (udp_sender_) {
+    try {
+      iq_udp_packet packet;
+      packet.header.timestamp = timestamp_ns;
+      std::strncpy(packet.header.imeisv, imeisv_str.c_str(), sizeof(packet.header.imeisv) - 1);
+      packet.header.imeisv[sizeof(packet.header.imeisv) - 1] = '\0';
+      packet.header.c_rnti = c_rnti_val;
+      packet.header.ta_flags = ta_is_rar ? 1 : 0;
+      packet.header.ta_value = ta_value;
+      packet.header.ta_update_time = ta_update_time_ns;
+      
+      // Copy ALL correlation values (no truncation)
+      packet.header.nof_correlation = correlation.size();
+      packet.correlation.resize(correlation.size());
+      for (unsigned i = 0; i < correlation.size(); ++i) {
+        packet.correlation[i] = correlation[i];
+      }
+      
+      // Flatten ALL antenna slices into single array (interleaved I/Q) - no truncation
+      // Format: [slice0_symbol0_I, slice0_symbol0_Q, slice0_symbol1_I, slice0_symbol1_Q, ..., slice1_symbol0_I, ...]
+      packet.header.nof_slices = all_symbols_freq.size();
+      unsigned total_samples = 0;
+      
+      // Calculate total samples from all slices
+      for (const auto& slice : all_symbols_freq) {
+        total_samples += slice.size();
+      }
+      
+      // Copy all samples from all slices
+      packet.header.nof_iq_samples = total_samples;
+      packet.iq_samples.resize(total_samples * 2);
+      unsigned sample_idx = 0;
+      for (const auto& slice : all_symbols_freq) {
+        for (const auto& symbol : slice) {
+          packet.iq_samples[sample_idx * 2] = symbol.real();     // I
+          packet.iq_samples[sample_idx * 2 + 1] = symbol.imag(); // Q
+          sample_idx++;
+        }
+      }
+      
+      udp_sender_->send_async(packet);
+    } catch (...) {
+      /* ignore UDP errors */
+    }
+  }
+  
+  //save into file
+  // file << std::scientific << std::setprecision(15);
+  // file << "correlation" << std::endl;
+  // for (const auto& val : correlation) {
+  //     file << val << ", " ;
+  // }
+  // file << std::endl;
+  // file << "stride " << stride << std::endl;
+  // file << "scs " << scs_to_khz(scs) << std::endl;
+  // file << "max_ta " << max_ta << std::endl;
+  
+  // file.close();
+  //ujjwal debug end
 
-  // Estimate the time alignment from the correlation.
+  // Estimate the time alignment from the correlation. 
   return estimate_ta_correlation(correlation, stride, scs, max_ta);
+}
+
+time_alignment_measurement time_alignment_estimator_dft_impl::estimate(const re_buffer_reader<cf_t>& symbols,
+  unsigned                      stride,
+  srsran::subcarrier_spacing    scs,
+  double                        max_ta)
+{ 
+unsigned       nof_symbols = symbols.get_nof_re();
+dft_processor& idft        = get_idft(nof_symbols);
+
+// Get IDFT input buffer.
+span<cf_t> channel_observed_freq = idft.get_input();
+
+// Zero input buffer.
+srsvec::zero(channel_observed_freq.last(channel_observed_freq.size() - nof_symbols));
+
+// Prepare correlation temporary buffer.
+span<float> correlation = span<float>(idft_abs2).first(idft.get_size());
+//ujjwal debug start
+
+//ujjwal debug end
+// Correlate each of the symbol slices.
+for (unsigned i_in = 0, max_in = symbols.get_nof_slices(); i_in != max_in; ++i_in) {
+
+// Get view of the input symbols for the given slice.
+span<const cf_t> symbols_in = symbols.get_slice(i_in);
+
+
+
+// Write the symbols in their corresponding positions.
+srsvec::copy(channel_observed_freq.first(nof_symbols), symbols_in);
+
+// Perform correlation in frequency domain.
+span<const cf_t> channel_observed_time = idft.run();
+
+
+
+
+
+// Calculate the absolute square of the correlation.
+if (i_in == 0) {
+srsvec::modulus_square(correlation, channel_observed_time);
+} else {
+// Accumulate the correlation.
+srsvec::modulus_square_and_add(correlation, channel_observed_time, correlation);
+}
+}
+
+
+// Estimate the time alignment from the correlation.
+return estimate_ta_correlation(correlation, stride, scs, max_ta);
 }
 
 time_alignment_measurement time_alignment_estimator_dft_impl::estimate(span<const cf_t>   symbols,
@@ -270,9 +650,12 @@ time_alignment_measurement time_alignment_estimator_dft_impl::estimate_ta_correl
 
   // Determine the number of taps the signal is advanced or delayed (negative).
   int idx = -(max_ta_samples - observed_max_advance.first);
-  if (observed_max_delay.second >= observed_max_advance.second) {
+  if (observed_max_delay.second >= observed_max_advance.second) { 
     idx = observed_max_delay.first;
+    //std::cout<<"observed_max_delay is greater than observed_max_advance"<<std::endl;
   }
+
+  
 
   // Calculate the fractional sample.
   double fractional_sample_index = 0.0F;
@@ -289,10 +672,27 @@ time_alignment_measurement time_alignment_estimator_dft_impl::estimate_ta_correl
     // Calculate the fractional sample.
     fractional_sample_index = fractional_sample_delay(peak_center_correlation);
   }
-
-  // Final calculation of the time alignment in seconds.
   double t_align_seconds = (static_cast<double>(idx) + fractional_sample_index) / sampling_rate_Hz;
-
+    // ToA_idx is the index of the maximum correlation.
+  // std::cout<<"--------------------------------------------------------------\n \n"<<std::endl;
+  // std::cout<<"observed_max_delay idx :"<<observed_max_delay.first<<std::endl;
+  // std::cout<<"observed_max_advance idx :"<<observed_max_advance.first<<std::endl;
+  // std::cout<<"observed_max_delay value :"<<observed_max_delay.second<<std::endl;
+  // std::cout<<"observed_max_advance value :"<<observed_max_advance.second<<std::endl;
+  // int ToA_idx = srsvec::max_element(correlation).first;
+  // std::cout<<"ToA_idx :"<<ToA_idx<<std::endl;
+  // double ToA = static_cast<double>(ToA_idx) / sampling_rate_Hz;
+  // std::cout<<"Max ta samples :"<<max_ta_samples<<std::endl;
+  // std::cout<<"Correlation size :"<<correlation.size()<<std::endl;
+  // std::cout<<"Fractional Sample Delay :"<<fractional_sample_index<<std::endl;
+  // std::cout<<"Peak Index :"<<idx<<std::endl;
+  // std::cout<<"t_alignment with out F sample delay :"<<static_cast<double>(idx)/sampling_rate_Hz<<std::endl;
+  // Final calculation of the time alignment in seconds.
+ 
+  // std::cout<<"t_alignment with F sample delay :"<<t_align_seconds<<std::endl;
+  // std::cout<<"ToA :"<<ToA<<std::endl;
+  // std::cout<<"Distance : "<<ToA*3e8<<std::endl;
+  // std::cout<<"--------------------------------------------------------------\n \n"<<std::endl;
   // Produce results.
   return time_alignment_measurement{
       .time_alignment = t_align_seconds,
