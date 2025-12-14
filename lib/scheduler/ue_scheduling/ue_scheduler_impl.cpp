@@ -231,4 +231,7 @@ ue_scheduler_impl::cell_context::cell_context(const scheduler_ue_expert_config& 
                     srslog::fetch_basic_logger("SCHED")),
   srs_sched(params.cell_res_alloc->cfg, ues)
 {
+  if (params.srs_exporter != nullptr) {
+    srs_sched.set_schedule_exporter(params.srs_exporter);
+  }
 }

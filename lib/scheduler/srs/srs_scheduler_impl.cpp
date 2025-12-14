@@ -437,6 +437,7 @@ bool srs_scheduler_impl::allocate_srs_opportunity(cell_slot_resource_allocator& 
 
   if (schedule_exporter != nullptr) {
     srs_schedule_descriptor desc;
+    desc.cell_id               = cell_cfg.nr_cgi;
     desc.slot                  = slot_alloc.slot;
     desc.rnti                  = srs_opportunity.rnti;
     desc.resource              = *srs_res;

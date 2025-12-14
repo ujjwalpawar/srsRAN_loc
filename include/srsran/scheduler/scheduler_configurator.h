@@ -27,6 +27,7 @@
 #include "srsran/ran/du_types.h"
 #include "srsran/ran/meas_gap_config.h"
 #include "srsran/ran/pci.h"
+#include "srsran/ran/nr_cgi.h"
 #include "srsran/ran/phy_time_unit.h"
 #include "srsran/ran/qos/five_qi_qos_mapping.h"
 #include "srsran/ran/rnti.h"
@@ -66,6 +67,7 @@ struct sched_cell_configuration_request_message {
   du_cell_group_index_t cell_group_index;
   uint8_t               nof_beams; // (0..64)
   pci_t                 pci;
+  nr_cell_global_id_t   nr_cgi;
 
   dl_config_common dl_cfg_common;
   ul_config_common ul_cfg_common;

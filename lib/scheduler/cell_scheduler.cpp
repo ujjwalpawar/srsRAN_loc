@@ -62,9 +62,11 @@ cell_scheduler::cell_scheduler(const scheduler_expert_config&                  s
                    get_tracer_thres(cell_cfg),
                    8)
 {
+  srs_exporter = std::make_unique<srs_schedule_file_exporter>("descriptor.json");
+
   // Register new cell in the UE scheduler.
   ue_sched.add_cell(ue_scheduler_cell_params{
-      msg.cell_index, &pdcch_sch, &pucch_alloc, &uci_alloc, &res_grid, &metrics, &event_logger});
+      msg.cell_index, &pdcch_sch, &pucch_alloc, &uci_alloc, &res_grid, &metrics, &event_logger, srs_exporter.get()});
 }
 
 void cell_scheduler::handle_crc_indication(const ul_crc_indication& crc_ind)

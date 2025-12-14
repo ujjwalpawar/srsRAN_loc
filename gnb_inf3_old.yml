@@ -1,0 +1,147 @@
+
+# This example configuration outlines how to configure the srsRAN Project CU/DU to use an O-RU and split 7.2. This is specifically for use
+# with the Benetel R550 RU. This config will create a single TDD MIMO cell transmitting in band 78, with 100 MHz bandwidth and 30 kHz sub-carrier-spacing.
+# The parameters used to configure the RU are found in the `ru_ofh` sub-section. This configuration makes used of the OFH Lib from SRS to enable split 7.2.
+
+cu_cp:
+  amf:
+    addr: 172.30.129.35                                           # The address or hostname of the AMF.
+    bind_addr: 10.0.0.6                                      # A local IP that the gNB binds to for traffic from the AMF.
+    sctp_nodelay: true
+    supported_tracking_areas:                                    # Configure the TA associated with the CU-CP
+      - tac: 1
+        plmn_list:
+          - plmn: "99999"
+            tai_slice_support_list:
+              - sst: 1
+
+ru_ofh:
+  t1a_max_cp_dl: 470
+  t1a_min_cp_dl: 419
+  t1a_max_cp_ul: 430
+  t1a_min_cp_ul: 286
+  t1a_max_up: 390
+  t1a_min_up: 80
+  ta4_max: 500
+  ta4_min: 25
+  is_prach_cp_enabled: false
+  ignore_ecpri_payload_size: true
+  compr_method_ul: bfp
+  compr_bitwidth_ul: 9
+  compr_method_dl: bfp
+  compr_bitwidth_dl: 9
+  compr_method_prach: bfp
+  compr_bitwidth_prach: 9
+  enable_ul_static_compr_hdr: true
+  enable_dl_static_compr_hdr: true
+  iq_scaling: 12.8
+  cells:
+    - network_interface: 0000:86:09.1
+      ru_mac_addr: 70:b3:d5:e1:5f:e9
+      du_mac_addr: 00:11:22:33:77:88
+      vlan_tag_cp: 11
+      vlan_tag_up: 11
+      prach_port_id: [4, 5,6,7]
+      dl_port_id: [0, 1,2,3]
+      ul_port_id: [0, 1,2,3]
+
+cell_cfg:
+  dl_arfcn: 660000
+  band: 77
+  channel_bandwidth_MHz: 100
+  common_scs: 30
+  plmn: "99999"
+  tac: 1
+  pci: 11
+  nof_antennas_dl: 4
+  nof_antennas_ul: 4
+  pcg_p_nr_fr1: +23
+  prach:
+    prach_config_index: 7
+    prach_root_sequence_index: 1
+    zero_correlation_zone: 0
+    prach_frequency_start: 0
+    preamble_trans_max: 50
+    power_ramping_step_db: 4
+  tdd_ul_dl_cfg:
+    dl_ul_tx_period: 10
+    nof_dl_slots: 7
+    nof_dl_symbols: 6
+    nof_ul_slots: 2
+    nof_ul_symbols: 4
+  ssb: 
+     ssb_period: 20                          # Optional UINT (10). Sets the period of SSB scheduling in milliseconds. Supported: [5, 10, 20].
+     ssb_block_power_dbm: -16                # Optional INT (-16). Sets the SS PBCH block power in dBm. Supported: [-60 - +50].
+     pss_to_sss_epre_db: 0                   # Optional UINT (0). Sets the Synchronization Signal Block Primary Synchronization Signal to Secondary Synchronization Signal Energy Per Resource Element ratio in dB. Supported: [0, 3].
+  ul_common: 
+     p_max: 23                                  # Optional TEXT. Sets maximum transmit power allowed in this serving cell. Supported: [-30 - +23].
+  pusch:
+    max_ue_mcs: 20
+    olla_snr_inc_step: 0.001
+    olla_target_bler: 0.15
+    olla_max_snr_offset: 5
+  pdsch:
+    # (keep your current config as is)
+    dmrs_additional_position: 3   # Best for 4x4 MIMO with 256-QAM
+    mcs_table: qam64
+    olla_target_bler: 0.15      # Slightly more aggressive for throughput
+    olla_cqi_inc_step: 0.01
+    olla_max_cqi_offset: 6
+    max_nof_harq_retxs: 3
+  srs:
+    srs_period_ms: 4
+    srs_max_nof_sym_per_slot: 6             # Optional UINT (2). Sets the number of symbols for UL slot that are reserved for the SRS cell resources. Supprted: [1 - 6]. 
+    srs_nof_sym_per_resource: 4             # Optional UINT (2). Sets the number of symbols per SRS resource. Supported: {1,2,4}. 
+    srs_tx_comb: 2                          # Optional UINT (4). Sets the SRS TX comb size. Supported: {2, 4}.
+    srs_cyclic_shift_reuse: 1               # Optional UINT (1). Sets the SRS cyclic shift reuse factor. It needs to be compatible with the TX comb and number of UL antenna ports. Supported: {1,2,3,4,6}.
+    srs_sequence_id_reuse: 1
+  sched_expert_cfg:
+    ta_sched_cfg:
+        ta_measurement_slot_period: 320
+        ta_measurement_slot_prohibit_period: 0 # 100ms
+        ta_cmd_offset_threshold: -1
+        ta_target: 0
+        ta_update_measurement_ul_sinr_threshold: 10
+expert_phy:
+  allow_request_on_empty_uplink_slot: false
+expert_execution:
+  cell_affinities:
+    -
+  affinities:
+    ru_timing_cpu: 31
+  threads:
+    upper_phy:
+      pdsch_processor_type: flexible
+      nof_pusch_decoder_threads: 4
+      pdsch_cb_batch_length: auto
+      nof_ul_threads: 4                       # Optional UINT (1). Sets the number of upprt PHY threads to proccess uplink.
+      nof_dl_threads: 8                       # Optional UINT (1). Sets the number of upprt PHY threads to proccess downlink.
+    ofh:
+      enable_dl_parallelization: true         # Optional BOOLEAN (true). Sets the Open Fronthaul downlink parallelization flag. Supported: [false, true].
+
+log:
+  filename: /tmp/gnb.log
+  all_level: warning
+#  ngap_level: error
+#  ofh_level: error
+ # mac_level: error
+#  high_latency_diagnostics_enabled: true
+  config_level: debug
+#  fapi_level: debug
+#  hal_level: info
+
+remote_control:
+  enabled: true
+  bind_addr: 0.0.0.0
+  port: 55555
+
+hal:
+   eal_args: "--lcore (0-1)@(11-50) -a 0000:86:09.1"
+
+pcap:
+  mac_enable: false
+  mac_filename: /tmp/gnb_mac.pcap
+  ngap_enable: true
+  ngap_filename: /tmp/gnb_ngap.pcap
+  f1ap_filename: /tmp/gnb_f1ap.pcap
+  f1ap_enable: true

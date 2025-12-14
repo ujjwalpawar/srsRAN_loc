@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include "srsran/ran/nr_cgi.h"
 #include "srsran/ran/rnti.h"
 #include "srsran/ran/slot_point.h"
 #include "srsran/ran/srs/srs_configuration.h"
@@ -32,6 +33,8 @@ namespace srsran {
 
 /// Captures the metadata required for an exported SRS schedule entry.
 struct srs_schedule_descriptor {
+  /// Cell that scheduled the SRS.
+  nr_cell_global_id_t cell_id;
   /// Absolute slot where the UE transmits its SRS.
   slot_point slot;
   /// UE identifier (C-RNTI or positioning RNTI).

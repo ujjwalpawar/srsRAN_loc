@@ -44,6 +44,7 @@ srsran::srs_du::make_sched_cell_config_req(du_cell_index_t               cell_in
   sched_req.cell_index           = cell_index;
   sched_req.cell_group_index     = (du_cell_group_index_t)cell_index; // No CA by default.
   sched_req.pci                  = du_cfg.pci;
+  sched_req.nr_cgi               = du_cfg.nr_cgi;
   sched_req.dl_carrier           = du_cfg.dl_carrier;
   sched_req.ul_carrier           = du_cfg.ul_carrier;
   sched_req.dl_cfg_common        = du_cfg.dl_cfg_common;

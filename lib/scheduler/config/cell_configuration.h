@@ -23,6 +23,7 @@
 #pragma once
 
 #include "srsran/adt/slotted_vector.h"
+#include "srsran/ran/nr_cgi.h"
 #include "srsran/scheduler/config/scheduler_expert_config.h"
 #include "srsran/scheduler/scheduler_configurator.h"
 
@@ -44,6 +45,7 @@ public:
   const du_cell_index_t                        cell_index;
   const du_cell_group_index_t                  cell_group_index;
   const pci_t                                  pci;
+  const nr_cell_global_id_t                    nr_cgi;
   const unsigned                               nof_dl_prbs;
   const unsigned                               nof_ul_prbs;
   const unsigned                               nof_slots_per_frame;

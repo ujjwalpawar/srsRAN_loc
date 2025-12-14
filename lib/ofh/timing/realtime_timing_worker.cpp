@@ -233,8 +233,11 @@ void realtime_timing_worker::poll()
   static thread_local int udp_recv_fd = create_nonblocking_udp_receiver(9000); 
   static thread_local std::string peer_ip = "10.0.0.1";
   static thread_local int peer_port = 9001;
-  static thread_local bool recv_once = true;
-  static thread_local bool send = false;
+  static thread_local bool recv_once            = true;
+  static thread_local bool send                 = false;
+  static thread_local bool log_slot_sequence    = false;
+  static thread_local unsigned remaining_slots  = 0;
+  static thread_local int log_counter           = 0;
   if(recv_once) {
     if(!send){
       send_slot_info(peer_ip, peer_port, 1);
@@ -242,8 +245,12 @@ void realtime_timing_worker::poll()
     }
       int info = 0;
     if (try_receive_slot_info(info, udp_recv_fd) != -1) {
-      logger.info("[GNB] Received ready  \n");
+      auto start_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(gps_clock::now().time_since_epoch()).count();
+      logger.info("[GNB] Received ready signal. t_start={} ns", start_ns);
       recv_once = false;
+      log_slot_sequence = true;
+      remaining_slots = 10;
+      log_counter     = 0;
       
     } 
     else{
@@ -282,6 +289,22 @@ void realtime_timing_worker::poll()
                            1000 / get_nof_slots_per_subframe(scs)),
       current_symbol_index % nof_symbols_per_slot,
       nof_symbols_per_slot);
+
+  if (SRSRAN_UNLIKELY(log_slot_sequence && remaining_slots > 0 && symbol_point.get_symbol_index() == 0)) {
+    slot_point slot = symbol_point.get_slot();
+    auto slot_time_ns =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
+    logger.info(
+        "[GNB] Slot sync sample {}: SFN={} slot={} time={} ns",
+        ++log_counter,
+        slot.sfn(),
+        slot.slot_index(),
+        slot_time_ns);
+    --remaining_slots;
+    if (remaining_slots == 0) {
+      log_slot_sequence = false;
+    }
+  }
 
   for (unsigned i = 0; i != delta; ++i) {
     unsigned skipped_symbol_id = delta - 1 - i;

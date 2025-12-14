@@ -40,6 +40,7 @@ set(SOURCES
         slicing/inter_slice_scheduler.cpp
         slicing/ran_slice_instance.cpp
         slicing/slice_ue_repository.cpp
+        srs/srs_schedule_file_exporter.cpp
         srs/srs_scheduler_impl.cpp
         cell_scheduler.cpp
         scheduler_factory.cpp
