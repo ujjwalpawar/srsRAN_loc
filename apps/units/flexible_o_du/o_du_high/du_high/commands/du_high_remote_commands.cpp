@@ -103,7 +103,6 @@ error_type<std::string> ssb_modify_remote_command::execute(const nlohmann::json&
     if (!nr_cgi) {
       return make_unexpected(nr_cgi.error());
     }
-    nr_cell_global_id_t cell_id = nr_cgi.value();
 
     req.cells.emplace_back(nr_cgi.value(), ssb_block_power_value);
   }
@@ -294,6 +293,7 @@ error_type<std::string> positioning_trigger_remote_command::execute(const nlohma
     if (!nr_cgi) {
       return make_unexpected(nr_cgi.error());
     }
+    nr_cell_global_id_t cell_id = nr_cgi.value();
 
     auto schedule_key = cell.value().find("schedule");
     if (schedule_key == cell.value().end() || !schedule_key->is_object()) {
