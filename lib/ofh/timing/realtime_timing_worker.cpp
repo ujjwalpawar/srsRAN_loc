@@ -301,25 +301,6 @@ void realtime_timing_worker::poll()
     return;
   }
 
-  if (start_time_received && !slot_origin_set) {
-    std::chrono::nanoseconds gps_start_time = std::chrono::nanoseconds(start_time_unix_ns) - gps_offset;
-    auto                     start_tp       = gps_clock::time_point(gps_start_time);
-    auto                     ns_fraction    = calculate_ns_fraction_from(start_tp);
-    auto                     start_seconds =
-        std::chrono::time_point_cast<std::chrono::seconds>(start_tp).time_since_epoch().count();
-    auto frac_us = std::chrono::duration_cast<std::chrono::microseconds>(ns_fraction).count();
-    slot_point origin_slot =
-        calculate_slot_point(scs, start_seconds, static_cast<uint32_t>(frac_us), 1000 / get_nof_slots_per_subframe(scs));
-    slot_origin_slot_cnt = origin_slot.to_uint();
-    slot_origin_set      = true;
-    log_slot_sequence    = true;
-    remaining_slots      = 10;
-    log_counter          = 0;
-    logger.info("[GNB] Aligning slot counter to SFN={} slot={} at start time", origin_slot.sfn(), origin_slot.slot_index());
-    std::cout << "[GNB] Aligning slot counter to SFN=" << origin_slot.sfn() << " slot=" << origin_slot.slot_index()
-              << std::endl;
-  }
-
   auto now         = gps_clock::now();
   auto ns_fraction = calculate_ns_fraction_from(now);
 
@@ -350,6 +331,18 @@ void realtime_timing_worker::poll()
                            1000 / get_nof_slots_per_subframe(scs)),
       current_symbol_index % nof_symbols_per_slot,
       nof_symbols_per_slot);
+
+  if (start_time_received && !slot_origin_set) {
+    slot_point first_slot = symbol_point.get_slot();
+    slot_origin_slot_cnt  = first_slot.to_uint();
+    slot_origin_set       = true;
+    log_slot_sequence     = true;
+    remaining_slots       = 10;
+    log_counter           = 0;
+    logger.info("[GNB] Aligning slot counter to SFN={} slot={} at start boundary", first_slot.sfn(), first_slot.slot_index());
+    std::cout << "[GNB] Aligning slot counter to SFN=" << first_slot.sfn() << " slot=" << first_slot.slot_index()
+              << std::endl;
+  }
 
   if (!slot_origin_set) {
     return;
