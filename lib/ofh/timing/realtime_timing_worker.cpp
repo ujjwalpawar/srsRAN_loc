@@ -247,6 +247,7 @@ void realtime_timing_worker::poll()
     if (try_receive_slot_info(info, udp_recv_fd) != -1) {
       auto start_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(gps_clock::now().time_since_epoch()).count();
       logger.info("[GNB] Received ready signal. t_start={} ns", start_ns);
+      std::cout << "[GNB] Received ready signal. t_start=" << start_ns << " ns" << std::endl;
       recv_once = false;
       log_slot_sequence = true;
       remaining_slots = 10;
@@ -294,12 +295,13 @@ void realtime_timing_worker::poll()
     slot_point slot = symbol_point.get_slot();
     auto slot_time_ns =
         std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
-    logger.info(
-        "[GNB] Slot sync sample {}: SFN={} slot={} time={} ns",
-        ++log_counter,
-        slot.sfn(),
-        slot.slot_index(),
-        slot_time_ns);
+    logger.info("[GNB] Slot sync sample {}: SFN={} slot={} time={} ns",
+                ++log_counter,
+                slot.sfn(),
+                slot.slot_index(),
+                slot_time_ns);
+    std::cout << "[GNB] Slot sync sample " << log_counter << ": SFN=" << slot.sfn()
+              << " slot=" << slot.slot_index() << " time=" << slot_time_ns << " ns" << std::endl;
     --remaining_slots;
     if (remaining_slots == 0) {
       log_slot_sequence = false;
