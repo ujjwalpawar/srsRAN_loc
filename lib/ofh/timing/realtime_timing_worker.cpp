@@ -26,9 +26,12 @@
 #include <future>
 #include <thread>
 #include <arpa/inet.h>
+#include <endian.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <iostream>
+#include <optional>
 using namespace srsran;
 using namespace ofh;
 
@@ -83,16 +86,40 @@ void send_slot_info(const std::string& ip, int port, int info)
   close(sockfd);
 }
 
-int try_receive_slot_info(int info, int sockfd)
+struct start_message_payload {
+  uint32_t magic;
+  uint64_t start_time_ns;
+};
+
+std::optional<uint64_t> try_receive_start_message(int sockfd)
 {
-  sockaddr_in sender_addr{};
-  socklen_t sender_len = sizeof(sender_addr);
-  ssize_t bytes = recvfrom(sockfd, &info, sizeof(info), 0,
-                           reinterpret_cast<sockaddr*>(&sender_addr), &sender_len);
-  if(bytes > 0)
-    std::cout<<"Received slot info: " << info << std::endl;
-  
-  return bytes;
+  start_message_payload payload{};
+  sockaddr_in            sender_addr{};
+  socklen_t              sender_len = sizeof(sender_addr);
+  ssize_t                bytes =
+      recvfrom(sockfd, &payload, sizeof(payload), 0, reinterpret_cast<sockaddr*>(&sender_addr), &sender_len);
+
+  if (bytes == -1) {
+    if (errno != EAGAIN && errno != EWOULDBLOCK) {
+      perror("recvfrom");
+    }
+    return std::nullopt;
+  }
+
+  if (bytes != static_cast<ssize_t>(sizeof(payload))) {
+    std::cout << "Received unexpected control payload of size " << bytes << " bytes" << std::endl;
+    return std::nullopt;
+  }
+
+  uint32_t magic = ntohl(payload.magic);
+  if (magic != 0xABCD1234) {
+    std::cout << "Received control payload with invalid magic " << std::hex << magic << std::dec << std::endl;
+    return std::nullopt;
+  }
+
+  uint64_t start_time_ns = be64toh(payload.start_time_ns);
+  std::cout << "Received synchronized start time: " << start_time_ns << " ns" << std::endl;
+  return start_time_ns;
 }
 
 int create_nonblocking_udp_receiver(int port)
@@ -230,34 +257,67 @@ calculate_slot_point(subcarrier_spacing scs, uint64_t gps_seconds, uint32_t frac
 void realtime_timing_worker::poll()
 {
 
-  static thread_local int udp_recv_fd = create_nonblocking_udp_receiver(9000); 
-  static thread_local std::string peer_ip = "10.0.0.1";
-  static thread_local int peer_port = 9001;
-  static thread_local bool recv_once            = true;
-  static thread_local bool send                 = false;
-  static thread_local bool log_slot_sequence    = false;
-  static thread_local unsigned remaining_slots  = 0;
-  static thread_local int log_counter           = 0;
-  if(recv_once) {
-    if(!send){
-      send_slot_info(peer_ip, peer_port, 1);
-      send= true;
-    }
-      int info = 0;
-    if (try_receive_slot_info(info, udp_recv_fd) != -1) {
-      auto start_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(gps_clock::now().time_since_epoch()).count();
-      logger.info("[GNB] Received ready signal. t_start={} ns", start_ns);
-      std::cout << "[GNB] Received ready signal. t_start=" << start_ns << " ns" << std::endl;
-      recv_once = false;
-      log_slot_sequence = true;
-      remaining_slots = 10;
-      log_counter     = 0;
-      
-    } 
-    else{
+  static thread_local int          udp_recv_fd          = create_nonblocking_udp_receiver(9000);
+  static thread_local std::string  controller_ip        = "10.0.0.1";
+  static thread_local int          controller_port      = 9001;
+  static thread_local bool         ready_sent           = false;
+  static thread_local bool         start_time_received  = false;
+  static thread_local uint64_t     start_time_unix_ns   = 0;
+  static thread_local bool         slot_origin_set      = false;
+  static thread_local uint32_t     slot_origin_slot_cnt = 0;
+  static thread_local bool         log_slot_sequence    = false;
+  static thread_local unsigned     remaining_slots      = 0;
+  static thread_local int          log_counter          = 0;
+
+  if (!ready_sent) {
+    send_slot_info(controller_ip, controller_port, 1);
+    ready_sent = true;
+    auto now_ns =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(gps_clock::now().time_since_epoch()).count();
+    logger.info("[GNB] Sent ready signal. t_now={} ns", now_ns);
+    std::cout << "[GNB] Sent ready signal. t_now=" << now_ns << " ns" << std::endl;
+  }
+
+  if (!start_time_received) {
+    auto start_time = try_receive_start_message(udp_recv_fd);
+    if (!start_time.has_value()) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
       return;
     }
-    
+    start_time_unix_ns  = start_time.value();
+    start_time_received = true;
+    logger.info("[GNB] Received synchronous start request at unix={} ns", start_time_unix_ns);
+    std::cout << "[GNB] Received synchronous start request at unix=" << start_time_unix_ns << " ns" << std::endl;
+  }
+
+  auto      now_rt_tp = std::chrono::system_clock::now();
+  uint64_t  now_rt_ns = static_cast<uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(now_rt_tp.time_since_epoch()).count());
+  if (start_time_received && now_rt_ns + 1000ULL < start_time_unix_ns) {
+    std::this_thread::sleep_for(std::chrono::microseconds(100));
+    return;
+  }
+  if (start_time_received && now_rt_ns < start_time_unix_ns) {
+    return;
+  }
+
+  if (start_time_received && !slot_origin_set) {
+    std::chrono::nanoseconds gps_start_time = std::chrono::nanoseconds(start_time_unix_ns) - gps_offset;
+    auto                     start_tp       = gps_clock::time_point(gps_start_time);
+    auto                     ns_fraction    = calculate_ns_fraction_from(start_tp);
+    auto                     start_seconds =
+        std::chrono::time_point_cast<std::chrono::seconds>(start_tp).time_since_epoch().count();
+    auto frac_us = std::chrono::duration_cast<std::chrono::microseconds>(ns_fraction).count();
+    slot_point origin_slot =
+        calculate_slot_point(scs, start_seconds, static_cast<uint32_t>(frac_us), 1000 / get_nof_slots_per_subframe(scs));
+    slot_origin_slot_cnt = origin_slot.to_uint();
+    slot_origin_set      = true;
+    log_slot_sequence    = true;
+    remaining_slots      = 10;
+    log_counter          = 0;
+    logger.info("[GNB] Aligning slot counter to SFN={} slot={} at start time", origin_slot.sfn(), origin_slot.slot_index());
+    std::cout << "[GNB] Aligning slot counter to SFN=" << origin_slot.sfn() << " slot=" << origin_slot.slot_index()
+              << std::endl;
   }
 
   auto now         = gps_clock::now();
@@ -290,6 +350,16 @@ void realtime_timing_worker::poll()
                            1000 / get_nof_slots_per_subframe(scs)),
       current_symbol_index % nof_symbols_per_slot,
       nof_symbols_per_slot);
+
+  if (!slot_origin_set) {
+    return;
+  }
+
+  const uint32_t total_slots = slot_point(scs, 0).nof_slots_per_system_frame();
+  slot_point      raw_slot   = symbol_point.get_slot();
+  uint32_t normalized_slot_count = (raw_slot.to_uint() + total_slots - slot_origin_slot_cnt) % total_slots;
+  slot_point normalized_slot(scs, normalized_slot_count);
+  symbol_point = slot_symbol_point(normalized_slot, symbol_point.get_symbol_index(), nof_symbols_per_slot);
 
   if (SRSRAN_UNLIKELY(log_slot_sequence && remaining_slots > 0 && symbol_point.get_symbol_index() == 0)) {
     slot_point slot = symbol_point.get_slot();
