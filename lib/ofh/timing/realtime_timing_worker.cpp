@@ -333,13 +333,18 @@ void realtime_timing_worker::poll()
       nof_symbols_per_slot);
 
   if (start_time_received && !slot_origin_set) {
+    if (symbol_point.get_symbol_index() != 0) {
+      return;
+    }
     slot_point first_slot = symbol_point.get_slot();
     slot_origin_slot_cnt  = first_slot.to_uint();
     slot_origin_set       = true;
     log_slot_sequence     = true;
     remaining_slots       = 10;
     log_counter           = 0;
-    logger.info("[GNB] Aligning slot counter to SFN={} slot={} at start boundary", first_slot.sfn(), first_slot.slot_index());
+    logger.info("[GNB] Aligning slot counter to SFN={} slot={} at first symbol boundary",
+                first_slot.sfn(),
+                first_slot.slot_index());
     std::cout << "[GNB] Aligning slot counter to SFN=" << first_slot.sfn() << " slot=" << first_slot.slot_index()
               << std::endl;
   }
