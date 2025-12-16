@@ -121,10 +121,10 @@ expert_execution:
 
 log:
   filename: /tmp/gnb.log
-  all_level: warning
+  all_level: info
 #  ngap_level: error
-#  ofh_level: error
- # mac_level: error
+  ofh_level: info
+  mac_level: info
 #  high_latency_diagnostics_enabled: true
   config_level: debug
 #  fapi_level: debug

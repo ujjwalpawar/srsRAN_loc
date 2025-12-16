@@ -23,6 +23,9 @@
 #include "realtime_timing_worker.h"
 #include "srsran/instrumentation/traces/ofh_traces.h"
 #include "srsran/ofh/timing/ofh_ota_symbol_boundary_notifier.h"
+#include <cerrno>
+#include <endian.h>
+#include <cstring>
 #include <future>
 #include <thread>
 #include <arpa/inet.h>
@@ -83,16 +86,34 @@ void send_slot_info(const std::string& ip, int port, int info)
   close(sockfd);
 }
 
-int try_receive_slot_info(int info, int sockfd)
+struct start_message {
+  uint32_t magic;
+  uint64_t start_time_ns;
+};
+
+static constexpr uint32_t START_MESSAGE_MAGIC = 0xABCD1234U;
+
+static bool try_receive_start_message(start_message& msg, int sockfd)
 {
   sockaddr_in sender_addr{};
   socklen_t sender_len = sizeof(sender_addr);
-  ssize_t bytes = recvfrom(sockfd, &info, sizeof(info), 0,
+  ssize_t bytes = recvfrom(sockfd, &msg, sizeof(msg), 0,
                            reinterpret_cast<sockaddr*>(&sender_addr), &sender_len);
-  if(bytes > 0)
-    std::cout<<"Received slot info: " << info << std::endl;
-  
-  return bytes;
+  if (bytes == -1) {
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      return false;
+    }
+    std::cerr << "recvfrom failed: " << strerror(errno) << std::endl;
+    return false;
+  }
+
+  if (static_cast<size_t>(bytes) != sizeof(msg)) {
+    return false;
+  }
+
+  msg.magic        = ntohl(msg.magic);
+  msg.start_time_ns = be64toh(msg.start_time_ns);
+  return true;
 }
 
 int create_nonblocking_udp_receiver(int port)
@@ -234,33 +255,68 @@ void realtime_timing_worker::poll()
   static thread_local std::string peer_ip = "10.0.0.1";
   static thread_local int peer_port = 9001;
   static thread_local bool recv_once            = true;
+  static thread_local bool waiting_start_time   = false;
+  static thread_local uint64_t target_start_ns  = 0;
   static thread_local bool send                 = false;
   static thread_local bool log_slot_sequence    = false;
   static thread_local unsigned remaining_slots  = 0;
   static thread_local int log_counter           = 0;
-  if(recv_once) {
-    if(!send){
+  if (recv_once) {
+    if (!send) {
       send_slot_info(peer_ip, peer_port, 1);
-      send= true;
+      send = true;
     }
-      int info = 0;
-    if (try_receive_slot_info(info, udp_recv_fd) != -1) {
-      auto start_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(gps_clock::now().time_since_epoch()).count();
-      logger.info("[GNB] Received ready signal. t_start={} ns", start_ns);
-      std::cout << "[GNB] Received ready signal. t_start=" << start_ns << " ns" << std::endl;
-      recv_once = false;
-      log_slot_sequence = true;
-      remaining_slots = 10;
-      log_counter     = 0;
-      
-    } 
-    else{
+
+    start_message msg{};
+    if (!try_receive_start_message(msg, udp_recv_fd)) {
       return;
     }
-    
+
+    if (msg.magic != START_MESSAGE_MAGIC) {
+      logger.warning("Received start message with invalid magic 0x{:08x}", msg.magic);
+      return;
+    }
+
+    target_start_ns     = msg.start_time_ns;
+    waiting_start_time  = true;
+    recv_once           = false;
+
+    auto start_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(gps_clock::now().time_since_epoch()).count();
+    logger.info("[GNB] Received start command. now={} ns target={} ns", start_ns, target_start_ns);
+    std::cout << "[GNB] Received start command. now=" << start_ns << " ns target=" << target_start_ns << " ns" << std::endl;
   }
 
-  auto now         = gps_clock::now();
+  gps_clock::time_point now;
+  bool                  now_initialized = false;
+
+  if (waiting_start_time) {
+    now             = gps_clock::now();
+    now_initialized = true;
+    uint64_t now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
+
+    if (now_ns < target_start_ns) {
+      uint64_t wait_ns = target_start_ns - now_ns;
+      if (wait_ns > 1000000ULL) {
+        wait_ns = 1000000ULL;
+      }
+      std::this_thread::sleep_for(std::chrono::nanoseconds(wait_ns));
+      return;
+    }
+
+    waiting_start_time = false;
+    log_slot_sequence  = true;
+    remaining_slots    = 10;
+    log_counter        = 0;
+    logger.info("[GNB] Starting slot logging at {} ns", now_ns);
+    std::cout << "[GNB] Starting slot logging at " << now_ns << " ns" << std::endl;
+
+    auto ns_fraction_start = calculate_ns_fraction_from(now);
+    previous_symb_index    = get_symbol_index(ns_fraction_start, symbol_duration);
+  }
+
+  if (!now_initialized) {
+    now = gps_clock::now();
+  }
   auto ns_fraction = calculate_ns_fraction_from(now);
 
   unsigned current_symbol_index = get_symbol_index(ns_fraction, symbol_duration);
