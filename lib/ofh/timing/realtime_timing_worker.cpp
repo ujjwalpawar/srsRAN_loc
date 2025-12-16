@@ -296,8 +296,8 @@ void realtime_timing_worker::poll()
 
     if (now_ns < target_start_ns) {
       uint64_t wait_ns = target_start_ns - now_ns;
-      if (wait_ns > 1000000ULL) {
-        wait_ns = 1000000ULL;
+      if (wait_ns > 1000ULL) {
+        wait_ns = 1000ULL;
       }
       std::this_thread::sleep_for(std::chrono::nanoseconds(wait_ns));
       return;
