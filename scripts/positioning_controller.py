@@ -112,6 +112,12 @@ def log_cells(payload: str) -> None:
 
 
 async def send_request(url: str, payload: str) -> None:
+    # Normalize common typos such as missing colon after ws.
+    if url.startswith("ws//"):
+        url = "ws://" + url[len("ws//") :]
+    elif not url.startswith(("ws://", "wss://")):
+        url = "ws://" + url
+
     async with websockets.connect(url) as ws:
         await ws.send(payload)
         response = await ws.recv()

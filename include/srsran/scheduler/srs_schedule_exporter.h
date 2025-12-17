@@ -49,6 +49,20 @@ struct srs_schedule_descriptor {
   std::string schedule_id;
 };
 
+/// Captures the metadata for a teardown of a previously exported SRS schedule.
+struct srs_schedule_stop_descriptor {
+  /// Cell that scheduled the SRS.
+  nr_cell_global_id_t cell_id;
+  /// UE identifier (C-RNTI or positioning RNTI).
+  rnti_t rnti;
+  /// IMEISV associated with the UE, if available.
+  std::optional<std::string> imeisv;
+  /// SRS resource that is no longer active.
+  srs_config::srs_resource resource;
+  /// Indicates whether this was a positioning request.
+  bool positioning_requested = false;
+};
+
 /// Lightweight hook that receives replicated SRS schedules.
 class srs_schedule_exporter
 {
@@ -57,6 +71,9 @@ public:
 
   /// Invoked whenever the scheduler successfully places an SRS opportunity in the resource grid.
   virtual void handle_schedule(const srs_schedule_descriptor& descriptor) = 0;
+
+  /// Invoked when an SRS resource is removed (e.g., UE release or positioning stop).
+  virtual void handle_stop(const srs_schedule_stop_descriptor& descriptor) = 0;
 };
 
 } // namespace srsran

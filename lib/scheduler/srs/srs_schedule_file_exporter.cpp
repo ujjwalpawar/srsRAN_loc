@@ -23,6 +23,7 @@
 #include "srs_schedule_file_exporter.h"
 #include "fmt/format.h"
 #include "nlohmann/json.hpp"
+#include <filesystem>
 #include <fstream>
 
 using namespace srsran;
@@ -86,26 +87,51 @@ nlohmann::json build_resource_json(const srs_config::srs_resource& res)
   return j;
 }
 
+std::string build_resource_key(const srs_config::srs_resource& res,
+                               const nr_cell_global_id_t&      cell_id,
+                               rnti_t                          rnti,
+                               bool                            positioning_requested,
+                               const std::optional<std::string>& imeisv)
+{
+  return fmt::format("{}-{}-{}-{}-{}-{}-{}-{}-{}-{}-{}-{}-{}-{}-{}-{}-{}",
+                     cell_id.plmn_id.to_string(),
+                     cell_id.nci.value(),
+                     fmt::underlying(rnti),
+                     positioning_requested ? 1 : 0,
+                     imeisv.value_or(""),
+                     res.id.cell_res_id,
+                     fmt::underlying(res.id.ue_res_id),
+                     fmt::underlying(res.nof_ports),
+                     res.res_mapping.start_pos,
+                     static_cast<unsigned>(res.res_mapping.nof_symb),
+                     static_cast<unsigned>(res.res_mapping.rept_factor),
+                     res.freq_domain_pos,
+                     res.freq_domain_shift,
+                     res.freq_hop.b_srs,
+                     res.freq_hop.b_hop,
+                     res.freq_hop.c_srs,
+                     fmt::underlying(res.tx_comb.size),
+                     res.tx_comb.tx_comb_offset);
+}
+
 } // namespace
 
 srs_schedule_file_exporter::srs_schedule_file_exporter(std::string output_path) : path(std::move(output_path))
 {
-  // Emit an empty descriptor so external scripts can start watching the file before the first UE request arrives.
-  std::lock_guard<std::mutex> lock(mtx);
-  std::ofstream               ofs(path, std::ios::trunc);
-  if (!ofs.is_open()) {
-    return;
-  }
+}
 
-  nlohmann::json payload;
-  payload["cmd"]   = "positioning_request";
-  payload["cells"] = nlohmann::json::array();
-  ofs << payload.dump(2);
-  ofs.flush();
+srs_schedule_file_exporter::~srs_schedule_file_exporter()
+{
+  std::lock_guard<std::mutex> lock(mtx);
+  std::error_code             ec;
+  std::filesystem::remove(path, ec);
 }
 
 void srs_schedule_file_exporter::handle_schedule(const srs_schedule_descriptor& descriptor)
 {
+  const std::string key =
+      build_resource_key(descriptor.resource, descriptor.cell_id, descriptor.rnti, descriptor.positioning_requested, descriptor.imeisv);
+
   nlohmann::json payload;
   payload["cmd"] = "positioning_request";
 
@@ -126,6 +152,48 @@ void srs_schedule_file_exporter::handle_schedule(const srs_schedule_descriptor& 
   payload["cells"] = nlohmann::json::array({cell});
 
   std::lock_guard<std::mutex> lock(mtx);
+  // Only emit once per resource until a stop is received.
+  if (!active_keys.insert(key).second) {
+    return;
+  }
+
+  std::ofstream ofs(path, std::ios::trunc);
+  if (!ofs.is_open()) {
+    return;
+  }
+  ofs << payload.dump(2);
+  ofs.flush();
+}
+
+void srs_schedule_file_exporter::handle_stop(const srs_schedule_stop_descriptor& descriptor)
+{
+  const std::string key =
+      build_resource_key(descriptor.resource, descriptor.cell_id, descriptor.rnti, descriptor.positioning_requested, descriptor.imeisv);
+
+  nlohmann::json payload;
+  payload["cmd"] = "positioning_stop";
+
+  nlohmann::json cell;
+  cell["plmn"] = descriptor.cell_id.plmn_id.to_string();
+  cell["nci"]  = descriptor.cell_id.nci.value();
+
+  nlohmann::json schedule;
+  schedule["rnti"]     = fmt::format("{:#x}", to_value(descriptor.rnti));
+  schedule["resource"] = build_resource_json(descriptor.resource);
+  schedule["action"]   = "stop";
+  if (descriptor.imeisv) {
+    schedule["imeisv"] = *descriptor.imeisv;
+  }
+  if (descriptor.positioning_requested) {
+    schedule["positioning_requested"] = true;
+  }
+
+  cell["schedule"] = std::move(schedule);
+  payload["cells"] = nlohmann::json::array({cell});
+
+  std::lock_guard<std::mutex> lock(mtx);
+  active_keys.erase(key);
+
   std::ofstream               ofs(path, std::ios::trunc);
   if (!ofs.is_open()) {
     return;

@@ -24,14 +24,15 @@
 #include "../cell/resource_grid.h"
 #include <fmt/format.h>
 #include "srsran/srslog/srslog.h"
+#include "srsran/scheduler/ue_identity_tracker.h"
 
 using namespace srsran;
 
 // Helper to generate an SRS info PDU for a given SRS resource.
 static srs_info create_srs_pdu(rnti_t                          rnti,
-                               const bwp_configuration&        ul_bwp_cfg,
-                               const srs_config::srs_resource& srs_res_cfg,
-                               bool                            pos_meas_requested)
+                                const bwp_configuration&        ul_bwp_cfg,
+                                const srs_config::srs_resource& srs_res_cfg,
+                                bool                            pos_meas_requested)
 {
   srs_info pdu;
   pdu.crnti             = rnti;
@@ -186,6 +187,38 @@ void srs_scheduler_impl::rem_ue(const ue_cell_configuration& ue_cfg)
                    srs_res->periodicity_and_offset.value().period,
                    srs_res->periodicity_and_offset.value().offset,
                    srs_res->id.ue_res_id);
+      if (schedule_exporter != nullptr) {
+        std::optional<std::string> imeisv;
+        auto                       pending_it = std::find_if(
+            pending_pos_requests.begin(),
+            pending_pos_requests.end(),
+            [rnti = ue_cfg.crnti](const positioning_measurement_request& req) { return req.pos_rnti == rnti; });
+        if (pending_it != pending_pos_requests.end() && pending_it->imeisv) {
+          imeisv = pending_it->imeisv;
+        } else {
+          std::string tracked;
+          if (ue_identity_tracker::get_imeisv_by_crnti(to_value(ue_cfg.crnti), tracked)) {
+            imeisv = tracked;
+          }
+        }
+
+        if (!imeisv) {
+          logger.debug("cell={} rnti={}: Skipping SRS stop export due to missing IMEISV",
+                       fmt::underlying(cell_cfg.cell_index),
+                       ue_cfg.crnti);
+          continue;
+        }
+
+        srs_schedule_stop_descriptor stop_desc;
+        stop_desc.cell_id               = cell_cfg.nr_cgi;
+        stop_desc.rnti                  = ue_cfg.crnti;
+        if (imeisv) {
+          stop_desc.imeisv = imeisv;
+        }
+        stop_desc.resource              = *srs_res;
+        stop_desc.positioning_requested = false;
+        schedule_exporter->handle_stop(stop_desc);
+      }
     }
   }
 }
@@ -293,6 +326,23 @@ void srs_scheduler_impl::handle_positioning_measurement_stop(du_cell_index_t cel
                    srs_res.periodicity_and_offset.value().period,
                    srs_res.periodicity_and_offset.value().offset,
                    srs_res.id.ue_res_id);
+      if (schedule_exporter != nullptr) {
+        srs_schedule_stop_descriptor stop_desc;
+        stop_desc.cell_id               = cell_cfg.nr_cgi;
+        stop_desc.rnti                  = it->pos_rnti;
+        if (it->imeisv) {
+          stop_desc.imeisv = it->imeisv;
+        }
+        stop_desc.resource              = srs_res;
+        stop_desc.positioning_requested = true;
+        if (stop_desc.imeisv) {
+          schedule_exporter->handle_stop(stop_desc);
+        } else {
+          logger.debug("cell={} rnti={}: Skipping positioning stop export due to missing IMEISV",
+                       fmt::underlying(cell_cfg.cell_index),
+                       stop_desc.rnti);
+        }
+      }
     }
   }
 
@@ -436,15 +486,31 @@ bool srs_scheduler_impl::allocate_srs_opportunity(cell_slot_resource_allocator& 
       create_srs_pdu(srs_opportunity.rnti, ul_bwp_cfg, *srs_res, pos_req != nullptr));
 
   if (schedule_exporter != nullptr) {
+    std::optional<std::string> imeisv;
+    if (pos_req && pos_req->imeisv) {
+      imeisv = pos_req->imeisv;
+    } else {
+      std::string tracked;
+      if (ue_identity_tracker::get_imeisv_by_crnti(to_value(srs_opportunity.rnti), tracked)) {
+        imeisv = tracked;
+      }
+    }
+
+    if (!imeisv) {
+      logger.debug("cell={} rnti={}: Skipping SRS export for slot={} due to missing IMEISV",
+                   fmt::underlying(cell_cfg.cell_index),
+                   srs_opportunity.rnti,
+                   sl_srs);
+      return true;
+    }
+
     srs_schedule_descriptor desc;
     desc.cell_id               = cell_cfg.nr_cgi;
     desc.slot                  = slot_alloc.slot;
     desc.rnti                  = srs_opportunity.rnti;
     desc.resource              = *srs_res;
     desc.positioning_requested = (pos_req != nullptr);
-    if (pos_req && pos_req->imeisv) {
-      desc.imeisv = pos_req->imeisv;
-    }
+    desc.imeisv                = imeisv;
     desc.schedule_id = fmt::format("{}-{}-{}-{}-{}",
                                    fmt::underlying(cell_cfg.cell_index),
                                    desc.slot.sfn(),
@@ -452,6 +518,12 @@ bool srs_scheduler_impl::allocate_srs_opportunity(cell_slot_resource_allocator& 
                                    fmt::underlying(desc.rnti),
                                    fmt::underlying(srs_res->id.ue_res_id));
     schedule_exporter->handle_schedule(desc);
+  } else if (schedule_exporter != nullptr && pos_req == nullptr) {
+    // No positioning metadata yet; defer export until IMEISV is known.
+    logger.debug("cell={} rnti={}: Skipping SRS export for slot={} due to missing positioning metadata",
+                 fmt::underlying(cell_cfg.cell_index),
+                 srs_opportunity.rnti,
+                 sl_srs);
   }
 
   return true;

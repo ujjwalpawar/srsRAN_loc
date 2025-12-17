@@ -20,27 +20,52 @@
  *
  */
 
-#include "positioning_handler.h"
-
 #ifndef SRSRAN_HAS_ENTERPRISE
 
 #include "positioning_handler.h"
+#include "srsran/mac/mac_cell_control_information_handler.h"
+#include "srsran/mac/mac_cell_manager.h"
+#include "srsran/scheduler/scheduler_positioning_handler.h"
 #include "srsran/support/async/async_no_op_task.h"
+#include "srsran/support/executors/task_executor.h"
 
 using namespace srsran;
 
 namespace {
 
-class disabled_positioning_handler final : public positioning_handler
+class simple_positioning_handler final : public positioning_handler
 {
 public:
+  simple_positioning_handler(scheduler_positioning_handler& sched_, du_cell_index_t cell_index_) :
+    sched(sched_), cell_index(cell_index_)
+  {
+  }
+
   async_task<mac_cell_positioning_measurement_response>
   handle_positioning_measurement_request(const mac_cell_positioning_measurement_request& req) override
   {
+    positioning_measurement_request sched_req;
+    sched_req.pos_rnti   = req.rnti.value_or(rnti_t::INVALID_RNTI);
+    sched_req.ue_index   = req.ue_index;
+    sched_req.imeisv     = req.imeisv;
+    sched_req.cell_index = cell_index;
+    sched_req.srs_to_measure = req.srs_to_meas;
+
+    sched.handle_positioning_measurement_request(sched_req);
+
+    // This implementation only forwards the request; results are handled elsewhere.
     return launch_no_op_task(mac_cell_positioning_measurement_response{});
   }
 
-  void handle_srs_indication(const mac_srs_indication_message& msg) override {}
+  void handle_srs_indication(const mac_srs_indication_message& msg) override
+  {
+    // No-op: upstream handling not required for exporting schedules.
+    (void)msg;
+  }
+
+private:
+  scheduler_positioning_handler& sched;
+  du_cell_index_t                cell_index;
 };
 
 } // namespace
@@ -50,7 +75,9 @@ std::unique_ptr<positioning_handler> srsran::create_positioning_handler(schedule
                                                                         task_executor&                 ctrl_exec,
                                                                         srslog::basic_logger&          logger)
 {
-  return std::make_unique<disabled_positioning_handler>();
+  (void)ctrl_exec;
+  (void)logger;
+  return std::make_unique<simple_positioning_handler>(sched, cell_index);
 }
 
 #endif

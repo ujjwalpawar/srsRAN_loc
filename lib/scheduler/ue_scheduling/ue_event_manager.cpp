@@ -358,13 +358,6 @@ void ue_event_manager::handle_ue_deletion(ue_config_delete_event ev)
     const rnti_t    rnti      = u.crnti;
     du_cell_index_t pcell_idx = u.get_pcell().cell_index;
 
-    // Remove C-RNTI mapping from identity tracker (so it can be reused for new UEs)
-    try {
-      ue_identity_tracker::remove_crnti(to_value(rnti));
-    } catch (...) {
-      // Silently ignore - this is debug/tracking feature only
-    }
-
     for (unsigned i = 0, e = u.nof_cells(); i != e; ++i) {
       // Update UCI scheduling by removing existing UE UCI resources.
       du_cells[u.get_cell(to_ue_cell_index(i)).cell_index].uci_sched->rem_ue(u.get_pcell().cfg());
@@ -372,6 +365,13 @@ void ue_event_manager::handle_ue_deletion(ue_config_delete_event ev)
       du_cells[u.get_cell(to_ue_cell_index(i)).cell_index].srs_sched->rem_ue(u.get_pcell().cfg());
       // Schedule removal of UE from slice scheduler.
       du_cells[u.get_cell(to_ue_cell_index(i)).cell_index].slice_sched->rem_ue(ue_idx);
+    }
+
+    // Remove C-RNTI mapping from identity tracker (so it can be reused for new UEs)
+    try {
+      ue_identity_tracker::remove_crnti(to_value(rnti));
+    } catch (...) {
+      // Silently ignore - this is debug/tracking feature only
     }
 
     // Schedule UE removal from repository.

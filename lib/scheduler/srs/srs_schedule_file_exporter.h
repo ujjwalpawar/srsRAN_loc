@@ -24,7 +24,9 @@
 
 #include "srsran/scheduler/srs_schedule_exporter.h"
 #include <mutex>
+#include <optional>
 #include <string>
+#include <unordered_set>
 
 namespace srsran {
 
@@ -33,12 +35,15 @@ class srs_schedule_file_exporter : public srs_schedule_exporter
 {
 public:
   explicit srs_schedule_file_exporter(std::string output_path);
+  ~srs_schedule_file_exporter();
 
   void handle_schedule(const srs_schedule_descriptor& descriptor) override;
+  void handle_stop(const srs_schedule_stop_descriptor& descriptor) override;
 
 private:
   std::string       path;
   std::mutex        mtx;
+  std::unordered_set<std::string> active_keys;
 };
 
 } // namespace srsran
