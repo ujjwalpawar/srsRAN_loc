@@ -157,6 +157,17 @@ void srs_schedule_file_exporter::handle_schedule(const srs_schedule_descriptor& 
     return;
   }
 
+  fmt::print(
+      "[SRS_EXPORT] START plmn={} nci={} rnti={} sfn={} slot={} imeisv={} positioning={} ue_res_id={}\n",
+      descriptor.cell_id.plmn_id.to_string(),
+      descriptor.cell_id.nci.value(),
+      fmt::format("{:#x}", to_value(descriptor.rnti)),
+      descriptor.slot.sfn(),
+      descriptor.slot.slot_index(),
+      descriptor.imeisv.value_or("n/a"),
+      descriptor.positioning_requested,
+      fmt::underlying(descriptor.resource.id.ue_res_id));
+
   std::ofstream ofs(path, std::ios::trunc);
   if (!ofs.is_open()) {
     return;
@@ -193,6 +204,14 @@ void srs_schedule_file_exporter::handle_stop(const srs_schedule_stop_descriptor&
 
   std::lock_guard<std::mutex> lock(mtx);
   active_keys.erase(key);
+
+  fmt::print("[SRS_EXPORT] STOP plmn={} nci={} rnti={} ue_res_id={} imeisv={} positioning={}\n",
+             descriptor.cell_id.plmn_id.to_string(),
+             descriptor.cell_id.nci.value(),
+             fmt::format("{:#x}", to_value(descriptor.rnti)),
+             fmt::underlying(descriptor.resource.id.ue_res_id),
+             descriptor.imeisv.value_or("n/a"),
+             descriptor.positioning_requested);
 
   std::ofstream               ofs(path, std::ios::trunc);
   if (!ofs.is_open()) {
