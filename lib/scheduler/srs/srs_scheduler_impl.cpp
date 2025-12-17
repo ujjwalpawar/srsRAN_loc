@@ -189,6 +189,7 @@ void srs_scheduler_impl::rem_ue(const ue_cell_configuration& ue_cfg)
                    srs_res->id.ue_res_id);
       if (schedule_exporter != nullptr) {
         std::optional<std::string> imeisv;
+        std::optional<int>         rar_ta;
         auto                       pending_it = std::find_if(
             pending_pos_requests.begin(),
             pending_pos_requests.end(),
@@ -200,6 +201,10 @@ void srs_scheduler_impl::rem_ue(const ue_cell_configuration& ue_cfg)
           if (ue_identity_tracker::get_imeisv_by_crnti(to_value(ue_cfg.crnti), tracked)) {
             imeisv = tracked;
           }
+        }
+        auto ta_opt = ue_identity_tracker::get_latest_ta_by_rnti(to_value(ue_cfg.crnti));
+        if (ta_opt) {
+          rar_ta = *ta_opt;
         }
 
         if (!imeisv) {
@@ -214,6 +219,9 @@ void srs_scheduler_impl::rem_ue(const ue_cell_configuration& ue_cfg)
         stop_desc.rnti                  = ue_cfg.crnti;
         if (imeisv) {
           stop_desc.imeisv = imeisv;
+        }
+        if (rar_ta) {
+          stop_desc.rar_ta = rar_ta;
         }
         stop_desc.resource              = *srs_res;
         stop_desc.positioning_requested = false;
@@ -306,6 +314,18 @@ void srs_scheduler_impl::handle_positioning_measurement_request(const positionin
                  fmt::underlying(srs_res.id.ue_res_id),
                  static_cast<unsigned>(srs_res.periodicity_and_offset->period),
                  srs_res.periodicity_and_offset->offset);
+      fmt::print("SRS resource cfg: freq_pos={} freq_shift={} comb_size={} comb_offset={} seq_id={} start_symb={} nof_symb={} rept={} freq_hop(b_srs={},b_hop={},c_srs={})\n",
+                 srs_res.freq_domain_pos,
+                 srs_res.freq_domain_shift,
+                 fmt::underlying(srs_res.tx_comb.size),
+                 srs_res.tx_comb.tx_comb_offset,
+                 srs_res.sequence_id,
+                 srs_res.res_mapping.start_pos,
+                 static_cast<unsigned>(srs_res.res_mapping.nof_symb),
+                 static_cast<unsigned>(srs_res.res_mapping.rept_factor),
+                 srs_res.freq_hop.b_srs,
+                 srs_res.freq_hop.b_hop,
+                 srs_res.freq_hop.c_srs);
     }
     srsran_assert(res_added, "Invalid positioning measurement request for rnti={}", req.pos_rnti);
 
@@ -341,6 +361,10 @@ void srs_scheduler_impl::handle_positioning_measurement_stop(du_cell_index_t cel
         stop_desc.rnti                  = it->pos_rnti;
         if (it->imeisv) {
           stop_desc.imeisv = it->imeisv;
+        }
+        auto ta_opt = ue_identity_tracker::get_latest_ta_by_rnti(to_value(it->pos_rnti));
+        if (ta_opt) {
+          stop_desc.rar_ta = *ta_opt;
         }
         stop_desc.resource              = srs_res;
         stop_desc.positioning_requested = true;
@@ -527,6 +551,7 @@ bool srs_scheduler_impl::allocate_srs_opportunity(cell_slot_resource_allocator& 
 
   if (schedule_exporter != nullptr) {
     std::optional<std::string> imeisv;
+    std::optional<int>         rar_ta;
     if (pos_req && pos_req->imeisv) {
       imeisv = pos_req->imeisv;
     } else {
@@ -534,6 +559,10 @@ bool srs_scheduler_impl::allocate_srs_opportunity(cell_slot_resource_allocator& 
       if (ue_identity_tracker::get_imeisv_by_crnti(to_value(srs_opportunity.rnti), tracked)) {
         imeisv = tracked;
       }
+    }
+    auto ta_opt = ue_identity_tracker::get_latest_ta_by_rnti(to_value(srs_opportunity.rnti));
+    if (ta_opt) {
+      rar_ta = *ta_opt;
     }
 
     if (!imeisv) {
@@ -551,6 +580,11 @@ bool srs_scheduler_impl::allocate_srs_opportunity(cell_slot_resource_allocator& 
     desc.resource              = *srs_res;
     desc.positioning_requested = (pos_req != nullptr);
     desc.imeisv                = imeisv;
+    desc.rar_ta                = rar_ta;
+    if (pos_req) {
+      desc.all_resources.assign(pos_req->srs_to_measure.srs_res_list.begin(),
+                                pos_req->srs_to_measure.srs_res_list.end());
+    }
     desc.schedule_id = fmt::format("{}-{}-{}-{}-{}",
                                    fmt::underlying(cell_cfg.cell_index),
                                    desc.slot.sfn(),

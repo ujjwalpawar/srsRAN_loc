@@ -45,6 +45,10 @@ struct srs_schedule_descriptor {
   bool positioning_requested = false;
   /// IMEISV associated with the UE, if available.
   std::optional<std::string> imeisv;
+  /// Last known TA (e.g., RAR) if available.
+  std::optional<int> rar_ta;
+  /// Optional full list of SRS resources provided by the positioning request (for neighbour cells).
+  std::vector<srs_config::srs_resource> all_resources;
   /// Unique identifier assigned by the scheduler so external consumers can de-duplicate notifications.
   std::string schedule_id;
 };
@@ -57,6 +61,8 @@ struct srs_schedule_stop_descriptor {
   rnti_t rnti;
   /// IMEISV associated with the UE, if available.
   std::optional<std::string> imeisv;
+  /// Last known TA (e.g., RAR) if available.
+  std::optional<int> rar_ta;
   /// SRS resource that is no longer active.
   srs_config::srs_resource resource;
   /// Indicates whether this was a positioning request.

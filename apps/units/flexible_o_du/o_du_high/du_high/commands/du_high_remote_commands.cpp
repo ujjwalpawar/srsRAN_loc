@@ -317,47 +317,68 @@ error_type<std::string> positioning_trigger_remote_command::execute(const nlohma
       }
     }
 
-    auto resource_it = schedule_key->find("resource");
-    if (resource_it == schedule_key->end() || !resource_it->is_object()) {
-      return make_unexpected("'resource' object is missing and it is mandatory");
+    // Require full UE-specific SRS resources array.
+    auto all_res_key = schedule_key->find("all_resources");
+    if (all_res_key == schedule_key->end() || !all_res_key->is_array() || all_res_key->empty()) {
+      return make_unexpected("'all_resources' array is missing or empty and it is mandatory");
     }
 
-    srs_config::srs_resource resource{};
-    if (auto err = parse_srs_resource(resource_it.value(), resource); !err) {
-      return err;
+    std::vector<srs_config::srs_resource> resources_to_add;
+    resources_to_add.reserve(all_res_key->size());
+    for (const auto& res_entry : all_res_key.value()) {
+      if (!res_entry.is_object()) {
+        return make_unexpected("Each entry in 'all_resources' must be an object");
+      }
+      srs_config::srs_resource res{};
+      if (auto err = parse_srs_resource(res_entry, res); !err) {
+        return err;
+      }
+      resources_to_add.push_back(res);
     }
 
-    pos_req.srs_to_meas.srs_res_list.push_back(resource);
+    // Add all resources and a single resource set containing their IDs.
+    for (const auto& res : resources_to_add) {
+      pos_req.srs_to_meas.srs_res_list.push_back(res);
+    }
+
     srs_config::srs_resource_set set;
     set.id = srs_config::srs_res_set_id::MIN_SRS_RES_SET_ID;
-    set.srs_res_id_list.push_back(resource.id.ue_res_id);
+    for (const auto& res : resources_to_add) {
+      set.srs_res_id_list.push_back(res.id.ue_res_id);
+    }
     set.srs_res_set_usage = srs_usage::codebook;
-    if (resource.res_type == srs_resource_type::periodic) {
-      set.res_type.emplace<srs_config::srs_resource_set::periodic_resource_type>();
-    } else if (resource.res_type == srs_resource_type::semi_persistent) {
-      set.res_type.emplace<srs_config::srs_resource_set::semi_persistent_resource_type>();
-    } else {
-      set.res_type.emplace<srs_config::srs_resource_set::aperiodic_resource_type>();
+    // Use the first resource type to set the set type (assumes homogeneous types).
+    if (!resources_to_add.empty()) {
+      auto res_type = resources_to_add.front().res_type;
+      if (res_type == srs_resource_type::periodic) {
+        set.res_type.emplace<srs_config::srs_resource_set::periodic_resource_type>();
+      } else if (res_type == srs_resource_type::semi_persistent) {
+        set.res_type.emplace<srs_config::srs_resource_set::semi_persistent_resource_type>();
+      } else {
+        set.res_type.emplace<srs_config::srs_resource_set::aperiodic_resource_type>();
+      }
     }
     pos_req.srs_to_meas.srs_res_set_list.push_back(set);
 
     std::string cell_str = fmt::format("{}/{}", cell_id.plmn_id, cell_id.nci);
     std::string rnti_str =
         pos_req.rnti ? fmt::format("{:#x}", to_value(*pos_req.rnti)) : std::string("derived_from_imeisv");
+    // Use the first resource to log the UE-specific configuration summary.
     std::string periodicity_str = "n/a";
-    if (resource.periodicity_and_offset) {
+    if (!resources_to_add.empty() && resources_to_add.front().periodicity_and_offset) {
       periodicity_str = fmt::format("{}@{}",
-                                    static_cast<unsigned>(resource.periodicity_and_offset->period),
-                                    resource.periodicity_and_offset->offset);
+                                    static_cast<unsigned>(resources_to_add.front().periodicity_and_offset->period),
+                                    resources_to_add.front().periodicity_and_offset->offset);
     }
 
-    positioning_logger.info("Positioning request received: cell={} imeisv={} rnti={} cell_res={} ue_res={} periodicity={}",
-                            cell_str,
-                            pos_req.imeisv.value_or("unknown"),
-                            rnti_str,
-                            resource.id.cell_res_id,
-                            static_cast<unsigned>(resource.id.ue_res_id),
-                            periodicity_str);
+    positioning_logger.info(
+        "Positioning request received: cell={} imeisv={} rnti={} cell_res={} ue_res={} periodicity={}",
+        cell_str,
+        pos_req.imeisv.value_or("unknown"),
+        rnti_str,
+        resources_to_add.empty() ? -1 : resources_to_add.front().id.cell_res_id,
+        resources_to_add.empty() ? 0u : static_cast<unsigned>(resources_to_add.front().id.ue_res_id),
+        periodicity_str);
 
     srs_du::du_cell_param_config_request cell_req;
     cell_req.nr_cgi      = cell_id;

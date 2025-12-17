@@ -27,6 +27,7 @@
 #include <iostream>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -352,6 +353,32 @@ public:
       return true;
     }
     return false;
+  }
+
+  /// Get latest TA (RAR or CE) for a given RNTI, if known.
+  static std::optional<int> get_latest_ta_by_rnti(uint16_t c_rnti)
+  {
+    std::lock_guard<std::mutex> lock(get_mutex());
+    auto&                       crnti_map = get_crnti_to_imeisv();
+    auto                        it        = crnti_map.find(c_rnti);
+    if (it == crnti_map.end()) {
+      return std::nullopt;
+    }
+
+    const std::string& imeisv_str = it->second;
+    auto&              records    = get_records();
+    auto               rec_it     = records.find(imeisv_str);
+    if (rec_it == records.end()) {
+      return std::nullopt;
+    }
+
+    const auto& history = rec_it->second.ta_history;
+    for (auto hist_it = history.rbegin(); hist_it != history.rend(); ++hist_it) {
+      if (hist_it->rnti == c_rnti) {
+        return hist_it->ta_value;
+      }
+    }
+    return std::nullopt;
   }
 
   /// Remove C-RNTI mapping when UE disconnects (called by scheduler on UE removal)

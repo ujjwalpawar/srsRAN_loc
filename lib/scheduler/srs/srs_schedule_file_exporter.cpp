@@ -132,6 +132,15 @@ void srs_schedule_file_exporter::handle_schedule(const srs_schedule_descriptor& 
   const std::string key =
       build_resource_key(descriptor.resource, descriptor.cell_id, descriptor.rnti, descriptor.positioning_requested, descriptor.imeisv);
 
+  // Do not emit positioning starts unless full resource info is present.
+  if (descriptor.positioning_requested && descriptor.all_resources.empty()) {
+    fmt::print("[SRS_EXPORT] SKIP start missing all_resources for rnti={} cell={}/{}\n",
+               fmt::format("{:#x}", to_value(descriptor.rnti)),
+               descriptor.cell_id.plmn_id.to_string(),
+               descriptor.cell_id.nci.value());
+    return;
+  }
+
   nlohmann::json payload;
   payload["cmd"] = "positioning_request";
 
@@ -143,10 +152,18 @@ void srs_schedule_file_exporter::handle_schedule(const srs_schedule_descriptor& 
   if (descriptor.imeisv) {
     schedule["imeisv"] = *descriptor.imeisv;
   }
-  schedule["rnti"] = fmt::format("{:#x}", to_value(descriptor.rnti));
-  schedule["slot"] = {{"sfn", descriptor.slot.sfn()}, {"slot", descriptor.slot.slot_index()}};
-  schedule["schedule_id"] = descriptor.schedule_id;
-  schedule["resource"]    = build_resource_json(descriptor.resource);
+  if (descriptor.rar_ta) {
+    schedule["rar_ta"] = *descriptor.rar_ta;
+  }
+  schedule["rnti"]     = fmt::format("{:#x}", to_value(descriptor.rnti));
+  schedule["resource"] = build_resource_json(descriptor.resource);
+  if (!descriptor.all_resources.empty()) {
+    nlohmann::json all_res = nlohmann::json::array();
+    for (const auto& res : descriptor.all_resources) {
+      all_res.push_back(build_resource_json(res));
+    }
+    schedule["all_resources"] = std::move(all_res);
+  }
 
   cell["schedule"] = std::move(schedule);
   payload["cells"] = nlohmann::json::array({cell});
@@ -200,6 +217,9 @@ void srs_schedule_file_exporter::handle_stop(const srs_schedule_stop_descriptor&
   schedule["action"]   = "stop";
   if (descriptor.imeisv) {
     schedule["imeisv"] = *descriptor.imeisv;
+  }
+  if (descriptor.rar_ta) {
+    schedule["rar_ta"] = *descriptor.rar_ta;
   }
   if (descriptor.positioning_requested) {
     schedule["positioning_requested"] = true;
