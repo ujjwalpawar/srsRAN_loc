@@ -129,16 +129,13 @@ srs_schedule_file_exporter::~srs_schedule_file_exporter()
 
 void srs_schedule_file_exporter::handle_schedule(const srs_schedule_descriptor& descriptor)
 {
-  const std::string key =
-      build_resource_key(descriptor.resource, descriptor.cell_id, descriptor.rnti, descriptor.positioning_requested, descriptor.imeisv);
+  const std::string key = build_resource_key(
+      descriptor.resource, descriptor.cell_id, descriptor.rnti, descriptor.positioning_requested, descriptor.imeisv);
 
-  // Do not emit positioning starts unless full resource info is present.
-  if (descriptor.positioning_requested && descriptor.all_resources.empty()) {
-    fmt::print("[SRS_EXPORT] SKIP start missing all_resources for rnti={} cell={}/{}\n",
-               fmt::format("{:#x}", to_value(descriptor.rnti)),
-               descriptor.cell_id.plmn_id.to_string(),
-               descriptor.cell_id.nci.value());
-    return;
+  // Ensure we always export at least one UE-specific resource for positioning.
+  std::vector<srs_config::srs_resource> all_resources = descriptor.all_resources;
+  if (descriptor.positioning_requested && all_resources.empty()) {
+    all_resources.push_back(descriptor.resource);
   }
 
   nlohmann::json payload;
@@ -157,9 +154,9 @@ void srs_schedule_file_exporter::handle_schedule(const srs_schedule_descriptor& 
   }
   schedule["rnti"]     = fmt::format("{:#x}", to_value(descriptor.rnti));
   schedule["resource"] = build_resource_json(descriptor.resource);
-  if (!descriptor.all_resources.empty()) {
+  if (!all_resources.empty()) {
     nlohmann::json all_res = nlohmann::json::array();
-    for (const auto& res : descriptor.all_resources) {
+    for (const auto& res : all_resources) {
       all_res.push_back(build_resource_json(res));
     }
     schedule["all_resources"] = std::move(all_res);

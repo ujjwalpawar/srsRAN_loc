@@ -316,24 +316,45 @@ error_type<std::string> positioning_trigger_remote_command::execute(const nlohma
         return err;
       }
     }
+    std::string rnti_str =
+        pos_req.rnti ? fmt::format("{:#x}", to_value(*pos_req.rnti)) : std::string("derived_from_imeisv");
 
-    // Require full UE-specific SRS resources array.
+    // Parse UE-specific SRS resources.
+    std::vector<srs_config::srs_resource> resources_to_add;
     auto all_res_key = schedule_key->find("all_resources");
-    if (all_res_key == schedule_key->end() || !all_res_key->is_array() || all_res_key->empty()) {
-      return make_unexpected("'all_resources' array is missing or empty and it is mandatory");
+    if (all_res_key != schedule_key->end() && all_res_key->is_array()) {
+      resources_to_add.reserve(all_res_key->size());
+      for (const auto& res_entry : all_res_key.value()) {
+        if (!res_entry.is_object()) {
+          return make_unexpected("Each entry in 'all_resources' must be an object");
+        }
+        srs_config::srs_resource res{};
+        if (auto err = parse_srs_resource(res_entry, res); !err) {
+          return err;
+        }
+        resources_to_add.push_back(res);
+      }
     }
 
-    std::vector<srs_config::srs_resource> resources_to_add;
-    resources_to_add.reserve(all_res_key->size());
-    for (const auto& res_entry : all_res_key.value()) {
-      if (!res_entry.is_object()) {
-        return make_unexpected("Each entry in 'all_resources' must be an object");
+    // Fallback: accept a single 'resource' object when all_resources is absent, but log it.
+    if (resources_to_add.empty()) {
+      auto res_entry = schedule_key->find("resource");
+      if (res_entry != schedule_key->end() && res_entry->is_object()) {
+        srs_config::srs_resource res{};
+        if (auto err = parse_srs_resource(res_entry.value(), res); !err) {
+          return err;
+        }
+        resources_to_add.push_back(res);
+        positioning_logger.warning("Positioning request for cell={} imeisv={} rnti={} missing all_resources; using "
+                                   "single 'resource' entry instead",
+                                   fmt::format("{}/{}", cell_id.plmn_id, cell_id.nci),
+                                   pos_req.imeisv.value_or("unknown"),
+                                   rnti_str);
       }
-      srs_config::srs_resource res{};
-      if (auto err = parse_srs_resource(res_entry, res); !err) {
-        return err;
-      }
-      resources_to_add.push_back(res);
+    }
+
+    if (resources_to_add.empty()) {
+      return make_unexpected("'all_resources' array is missing or empty and no fallback 'resource' provided");
     }
 
     // Add all resources and a single resource set containing their IDs.
@@ -361,8 +382,6 @@ error_type<std::string> positioning_trigger_remote_command::execute(const nlohma
     pos_req.srs_to_meas.srs_res_set_list.push_back(set);
 
     std::string cell_str = fmt::format("{}/{}", cell_id.plmn_id, cell_id.nci);
-    std::string rnti_str =
-        pos_req.rnti ? fmt::format("{:#x}", to_value(*pos_req.rnti)) : std::string("derived_from_imeisv");
     // Use the first resource to log the UE-specific configuration summary.
     std::string periodicity_str = "n/a";
     if (!resources_to_add.empty() && resources_to_add.front().periodicity_and_offset) {
