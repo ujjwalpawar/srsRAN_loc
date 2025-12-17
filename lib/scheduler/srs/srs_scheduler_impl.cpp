@@ -486,6 +486,28 @@ bool srs_scheduler_impl::allocate_srs_opportunity(cell_slot_resource_allocator& 
   slot_alloc.result.ul.srss.emplace_back(
       create_srs_pdu(srs_opportunity.rnti, ul_bwp_cfg, *srs_res, pos_req != nullptr));
 
+  // Trace scheduled SRS (helps verify serving/neighbour alignment).
+  if (pos_req && pos_req->imeisv) {
+    fmt::print("SRS sched: cell={}/{} rnti={} imeisv={} sfn={} slot={} ue_res={} positioning={}\n",
+               cell_cfg.nr_cgi.plmn_id.to_string(),
+               cell_cfg.nr_cgi.nci.value(),
+               fmt::format("{:#x}", to_value(srs_opportunity.rnti)),
+               *pos_req->imeisv,
+               slot_alloc.slot.sfn(),
+               slot_alloc.slot.slot_index(),
+               fmt::underlying(srs_res->id.ue_res_id),
+               pos_req != nullptr);
+  } else {
+    fmt::print("SRS sched: cell={}/{} rnti={} sfn={} slot={} ue_res={} positioning={}\n",
+               cell_cfg.nr_cgi.plmn_id.to_string(),
+               cell_cfg.nr_cgi.nci.value(),
+               fmt::format("{:#x}", to_value(srs_opportunity.rnti)),
+               slot_alloc.slot.sfn(),
+               slot_alloc.slot.slot_index(),
+               fmt::underlying(srs_res->id.ue_res_id),
+               pos_req != nullptr);
+  }
+
   if (schedule_exporter != nullptr) {
     std::optional<std::string> imeisv;
     if (pos_req && pos_req->imeisv) {
