@@ -12,8 +12,9 @@ Status key: `[done]` completed, `[wip]` in progress, `[todo]` not started.
 - [todo] Harden IMEISV propagation for stops when teardown races with identity tracker.
 
 ## Milestone 2 – Neighbour PHY SRS demap/estimation
-- [todo] Add positioning-aware SRS RX path to demap SRS PDUs with `positioning_report_requested` even for unknown UEs.  
-  - Files to touch: SRS RX pipeline (identify `lib/phy` / `lib/upper_phy` SRS processor) to accept foreign RNTIs and use provided resource config.
+- [wip] Add positioning-aware SRS RX trace to confirm demap for foreign RNTIs.  
+  - Files: `lib/fapi_adaptor/phy/phy_to_fapi_results_event_translator.cpp` (printf on positioning SRS RX with SFN/slot/rnti/TA).
+- [todo] Allow demap for unknown UEs explicitly if blocked elsewhere; ensure resource config is applied as-is.
 - [todo] Validate demap uses schedule periodicity/offset (SFN/slot alignment) and logs SFN/slot/resource.
 
 ## Milestone 3 – Measurement export

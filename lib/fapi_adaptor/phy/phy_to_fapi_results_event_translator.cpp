@@ -25,6 +25,7 @@
 #include "srsran/fapi/message_validators.h"
 #include "srsran/srsvec/bit.h"
 #include "srsran/support/math/math_utils.h"
+#include "fmt/format.h"
 
 using namespace srsran;
 using namespace fapi_adaptor;
@@ -582,6 +583,13 @@ void phy_to_fapi_results_event_translator::on_new_srs_results(const ul_srs_resul
   }
 
   if (context.is_positioning_report_requested) {
+    fmt::print("SRS RX positioning: sector={} rnti={} sfn={} slot={} ta_ns={}\n",
+               sector_id,
+               fmt::format("{:#x}", to_value(context.rnti)),
+               context.slot.sfn(),
+               context.slot.slot_index(),
+               static_cast<int>(result.processor_result.time_alignment.time_alignment * 1e9));
+
     // Do not use the handle for now.
     static const unsigned            handle          = 0;
     fapi::srs_indication_pdu_builder srs_pdu_builder = builder.add_srs_pdu(handle, context.rnti);
