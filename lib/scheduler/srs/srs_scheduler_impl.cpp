@@ -443,7 +443,10 @@ bool srs_scheduler_impl::allocate_srs_opportunity(cell_slot_resource_allocator& 
   }
 
   span<const srs_config::srs_resource> srs_res_list;
-  if (is_crnti(srs_opportunity.rnti)) {
+  if (pos_req != nullptr) {
+    // Neighbour positioning request (or explicit positioning) takes precedence, even if RNTI is in C-RNTI range.
+    srs_res_list = pos_req->srs_to_measure.srs_res_list;
+  } else if (is_crnti(srs_opportunity.rnti)) {
     // SRS of UE connected to the cell.
 
     // Fetch UE config.
@@ -467,24 +470,23 @@ bool srs_scheduler_impl::allocate_srs_opportunity(cell_slot_resource_allocator& 
     srs_res_list = ue_cfg->init_bwp().ul_ded->srs_cfg.value().srs_res_list;
 
   } else {
-    // SRS for UE of neighbor cell.
+    // SRS for UE of neighbor cell with non-C-RNTI.
     srsran_assert(pos_req != nullptr, "Positioning SRS requested for invalid C-RNTI");
     srs_res_list = pos_req->srs_to_measure.srs_res_list;
   }
 
-  // Retrieve the SRS resource ID from the UE dedicated config.
+  // Retrieve the SRS resource ID from the UE dedicated config or positioning request.
   const srs_config::srs_resource* srs_res =
       std::find_if(srs_res_list.begin(), srs_res_list.end(), [&srs_opportunity](const srs_config::srs_resource& s) {
         return s.id.ue_res_id == srs_opportunity.srs_res_id;
       });
 
   if (srs_res == srs_res_list.end()) {
-    logger.warning("cell={} c-rnti={}: SRS resource id={} cannot be allocated for slot={}. Cause: SRS resource not "
-                   "found in UE ded. config",
-                   fmt::underlying(cell_cfg.cell_index),
-                   srs_opportunity.rnti,
-                   fmt::underlying(srs_opportunity.srs_res_id),
-                   sl_srs);
+    fmt::print("SRS alloc fail: cell={} rnti={:#x} res_id={} slot={} (resource not found in config)\n",
+               fmt::underlying(cell_cfg.cell_index),
+               to_value(srs_opportunity.rnti),
+               fmt::underlying(srs_opportunity.srs_res_id),
+               sl_srs);
     return false;
   }
 
