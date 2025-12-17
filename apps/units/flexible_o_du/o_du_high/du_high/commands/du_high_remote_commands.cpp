@@ -26,7 +26,10 @@
 #include "srsran/ran/du_types.h"
 #include "srsran/ran/nr_cgi.h"
 #include "srsran/ran/srs/srs_configuration.h"
+#include "srsran/scheduler/ue_identity_tracker.h"
+#include "srsran/scheduler/ta_shared.h"
 #include "srsran/srslog/srslog.h"
+#include <chrono>
 
 using namespace srsran;
 
@@ -318,6 +321,25 @@ error_type<std::string> positioning_trigger_remote_command::execute(const nlohma
     }
     std::string rnti_str =
         pos_req.rnti ? fmt::format("{:#x}", to_value(*pos_req.rnti)) : std::string("derived_from_imeisv");
+
+    // Optional RAR TA: if present and RNTI known, store it so TA streamer can use it later.
+    if (auto rar_ta_field = schedule_key->find("rar_ta");
+        rar_ta_field != schedule_key->end() && rar_ta_field->is_number_integer() && pos_req.rnti) {
+      const int rar_ta_value = rar_ta_field->get<int>();
+      const auto now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                              std::chrono::system_clock::now().time_since_epoch())
+                              .count();
+      set_last_ta_with_crnti(now_ns, rar_ta_value, true, to_value(*pos_req.rnti));
+      positioning_logger.info("Stashed RAR TA={} for rnti={} (cell={}/{})",
+                              rar_ta_value,
+                              rnti_str,
+                              cell_id.plmn_id,
+                              cell_id.nci);
+    }
+    // If IMEISV and RNTI are both present, store mapping so IQ streaming can emit IMEISV even for neighbour UE.
+    if (pos_req.imeisv && pos_req.rnti) {
+      ue_identity_tracker::set_imeisv_for_crnti(to_value(*pos_req.rnti), *pos_req.imeisv);
+    }
 
     // Parse UE-specific SRS resources.
     std::vector<srs_config::srs_resource> resources_to_add;

@@ -466,6 +466,20 @@ public:
     std::cout << "[UE_ID_TRACKER] ========================================" << std::endl;
   }
 
+  /// Explicitly map a C-RNTI to an IMEISV (e.g., neighbour positioning path) and create a record if missing.
+  static void set_imeisv_for_crnti(uint16_t c_rnti, const std::string& imeisv_str)
+  {
+    std::lock_guard<std::mutex> lock(get_mutex());
+    auto&                       records   = get_records();
+    auto&                       crnti_map = get_crnti_to_imeisv();
+
+    crnti_map[c_rnti] = imeisv_str;
+    auto& rec         = records[imeisv_str]; // creates if missing
+    if (std::find(rec.c_rntis.begin(), rec.c_rntis.end(), c_rnti) == rec.c_rntis.end()) {
+      rec.c_rntis.push_back(c_rnti);
+    }
+  }
+
 private:
   struct pending_rach_info {
     uint16_t               ra_rnti;
