@@ -154,6 +154,12 @@ void srs_schedule_file_exporter::handle_schedule(const srs_schedule_descriptor& 
   std::lock_guard<std::mutex> lock(mtx);
   // Only emit once per resource until a stop is received.
   if (!active_keys.insert(key).second) {
+    fmt::print("[SRS_EXPORT] SKIP duplicate start plmn={} nci={} rnti={} ue_res_id={} imeisv={}\n",
+               descriptor.cell_id.plmn_id.to_string(),
+               descriptor.cell_id.nci.value(),
+               fmt::format("{:#x}", to_value(descriptor.rnti)),
+               fmt::underlying(descriptor.resource.id.ue_res_id),
+               descriptor.imeisv.value_or("n/a"));
     return;
   }
 
