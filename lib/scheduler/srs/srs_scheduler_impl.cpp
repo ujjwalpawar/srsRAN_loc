@@ -281,9 +281,10 @@ void srs_scheduler_impl::handle_positioning_measurement_request(const positionin
     updated_ues.push_back({req.pos_rnti, ue_update::type_t::positioning_request});
     pending_pos_requests.push_back(req);
   } else {
-    // It is a positioning measurement for a UE of another cell.
-    srsran_assert(not is_crnti(req.pos_rnti),
-                  "UEs of neighbor cells should be represented by RNTIs in the reserved range");
+    // It is a positioning measurement for a UE of another cell (or same RNTI reused for neighbour positioning).
+    if (is_crnti(req.pos_rnti)) {
+      logger.info("cell={}: Positioning request for neighbour UE using C-RNTI {}", fmt::underlying(req.cell_index), req.pos_rnti);
+    }
 
     // Add SRS config to slot wheel.
     bool res_added = false;
