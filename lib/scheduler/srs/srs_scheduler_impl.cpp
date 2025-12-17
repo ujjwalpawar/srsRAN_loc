@@ -298,6 +298,12 @@ void srs_scheduler_impl::handle_positioning_measurement_request(const positionin
                    srs_res.periodicity_and_offset.value().offset,
                    srs_res.id.ue_res_id);
       res_added = true;
+      logger.info("cell={} positioning (neighbour) rnti={} ue_res={} period={} offset={} added to wheel",
+                  fmt::underlying(cell_cfg.cell_index),
+                  fmt::format("{:#x}", to_value(req.pos_rnti)),
+                  fmt::underlying(srs_res.id.ue_res_id),
+                  static_cast<unsigned>(srs_res.periodicity_and_offset->period),
+                  srs_res.periodicity_and_offset->offset);
     }
     srsran_assert(res_added, "Invalid positioning measurement request for rnti={}", req.pos_rnti);
 
@@ -360,6 +366,12 @@ void srs_scheduler_impl::schedule_slot_srs(srsran::cell_slot_resource_allocator&
 {
   // For the provided slot, check if there are any pending SRS resources to allocate, and allocate them.
   auto& slot_srss = periodic_srs_slot_wheel[slot_alloc.slot.to_uint() % periodic_srs_slot_wheel.size()];
+  if (!slot_srss.empty()) {
+    logger.info("cell={} slot={} srs_entries={}",
+                fmt::underlying(cell_cfg.cell_index),
+                slot_alloc.slot,
+                slot_srss.size());
+  }
   for (auto srs_info_it : slot_srss) {
     allocate_srs_opportunity(slot_alloc, srs_info_it);
   }
