@@ -599,6 +599,27 @@ static YAML::Node build_du_high_srs_section(const du_high_unit_srs_config& confi
   return node;
 }
 
+static YAML::Node build_du_high_positioning_section(const du_high_unit_positioning_config& config)
+{
+  YAML::Node node;
+
+  if (!config.neighbours.empty()) {
+    YAML::Node neighbours;
+    for (const auto& neighbour : config.neighbours) {
+      YAML::Node entry;
+      entry["addr"] = neighbour.address;
+      entry["port"] = neighbour.port;
+      if (!neighbour.path.empty() && neighbour.path != "/") {
+        entry["path"] = neighbour.path;
+      }
+      neighbours.push_back(entry);
+    }
+    node["neighbours"] = neighbours;
+  }
+
+  return node;
+}
+
 static YAML::Node build_cell_entry(const du_high_unit_base_cell_config& config)
 {
   YAML::Node node;
@@ -635,6 +656,9 @@ static YAML::Node build_cell_entry(const du_high_unit_base_cell_config& config)
   node["paging"] = build_du_high_paging_section(config.paging_cfg);
   node["csi"]    = build_du_high_csi_section(config.csi_cfg);
   node["srs"]    = build_du_high_srs_section(config.srs_cfg);
+  if (!config.positioning_cfg.neighbours.empty()) {
+    node["positioning"] = build_du_high_positioning_section(config.positioning_cfg);
+  }
   fill_du_high_sched_expert_section(node, config.sched_expert_cfg);
 
   return node;

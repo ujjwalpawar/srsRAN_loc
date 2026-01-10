@@ -42,6 +42,20 @@ std::string to_string_group_hopping(srs_group_or_sequence_hopping value)
   }
 }
 
+std::string to_string_resource_type(srs_resource_type value)
+{
+  switch (value) {
+    case srs_resource_type::aperiodic:
+      return "aperiodic";
+    case srs_resource_type::semi_persistent:
+      return "semi_persistent";
+    case srs_resource_type::periodic:
+      return "periodic";
+    default:
+      return "invalid";
+  }
+}
+
 nlohmann::json build_resource_json(const srs_config::srs_resource& res)
 {
   nlohmann::json j;
@@ -72,17 +86,14 @@ nlohmann::json build_resource_json(const srs_config::srs_resource& res)
 
   j["sequence_id"]               = res.sequence_id;
   j["group_or_sequence_hopping"] = to_string_group_hopping(res.grp_or_seq_hop);
-  j["resource_type"]             = std::string(to_string(res.res_type));
+  j["resource_type"]             = to_string_resource_type(res.res_type);
 
-  nlohmann::json periodicity;
   if (res.periodicity_and_offset) {
+    nlohmann::json periodicity;
     periodicity["t_srs"] = static_cast<unsigned>(res.periodicity_and_offset->period);
     periodicity["offset"] = res.periodicity_and_offset->offset;
-  } else {
-    periodicity["t_srs"] = 0;
-    periodicity["offset"] = 0;
+    j["periodicity"] = std::move(periodicity);
   }
-  j["periodicity"] = std::move(periodicity);
 
   return j;
 }
@@ -152,8 +163,14 @@ void srs_schedule_file_exporter::handle_schedule(const srs_schedule_descriptor& 
   if (descriptor.rar_ta) {
     schedule["rar_ta"] = *descriptor.rar_ta;
   }
+  schedule["sfn"]      = descriptor.slot.sfn();
+  schedule["slot"]     = descriptor.slot.slot_index();
+  schedule["schedule_id"] = descriptor.schedule_id;
   schedule["rnti"]     = fmt::format("{:#x}", to_value(descriptor.rnti));
   schedule["resource"] = build_resource_json(descriptor.resource);
+  if (descriptor.positioning_requested) {
+    schedule["positioning_requested"] = true;
+  }
   if (!all_resources.empty()) {
     nlohmann::json all_res = nlohmann::json::array();
     for (const auto& res : all_resources) {
@@ -168,12 +185,6 @@ void srs_schedule_file_exporter::handle_schedule(const srs_schedule_descriptor& 
   std::lock_guard<std::mutex> lock(mtx);
   // Only emit once per resource until a stop is received.
   if (!active_keys.insert(key).second) {
-    fmt::print("[SRS_EXPORT] SKIP duplicate start plmn={} nci={} rnti={} ue_res_id={} imeisv={}\n",
-               descriptor.cell_id.plmn_id.to_string(),
-               descriptor.cell_id.nci.value(),
-               fmt::format("{:#x}", to_value(descriptor.rnti)),
-               fmt::underlying(descriptor.resource.id.ue_res_id),
-               descriptor.imeisv.value_or("n/a"));
     return;
   }
 

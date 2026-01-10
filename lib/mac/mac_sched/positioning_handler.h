@@ -40,6 +40,10 @@ public:
   virtual async_task<mac_cell_positioning_measurement_response>
   handle_positioning_measurement_request(const mac_cell_positioning_measurement_request& req) = 0;
 
+  /// Handle stop for an on-going positioning measurement.
+  virtual async_task<void>
+  handle_positioning_measurement_stop(const mac_cell_positioning_measurement_stop_request& req) = 0;
+
   /// Handle SRS indication from lower layers.
   virtual void handle_srs_indication(const mac_srs_indication_message& msg) = 0;
 };

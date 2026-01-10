@@ -358,6 +358,19 @@ void ue_event_manager::handle_ue_deletion(ue_config_delete_event ev)
     const rnti_t    rnti      = u.crnti;
     du_cell_index_t pcell_idx = u.get_pcell().cell_index;
 
+    auto pos_it = active_positioning_requests.find(to_value(rnti));
+    if (pos_it != active_positioning_requests.end()) {
+      du_cell_index_t pos_cell = pos_it->second;
+      if (cell_exists(pos_cell) && du_cells[pos_cell].srs_sched != nullptr) {
+        du_cells[pos_cell].srs_sched->handle_positioning_measurement_stop(pos_cell, rnti);
+      } else {
+        logger.debug("ue={} rnti={}: Skipping positioning stop due to invalid cell index",
+                     fmt::underlying(ue_idx),
+                     rnti);
+      }
+      active_positioning_requests.erase(pos_it);
+    }
+
     for (unsigned i = 0, e = u.nof_cells(); i != e; ++i) {
       // Update UCI scheduling by removing existing UE UCI resources.
       du_cells[u.get_cell(to_ue_cell_index(i)).cell_index].uci_sched->rem_ue(u.get_pcell().cfg());
@@ -788,6 +801,21 @@ void ue_event_manager::handle_positioning_measurement_request(const positioning_
           common_event_t{INVALID_DU_UE_INDEX, [this, req_ptr = std::move(req_ptr)]() {
                            srsran_sanity_check(cell_exists(req_ptr->cell_index), "Invalid cell index");
                            du_cells[req_ptr->cell_index].srs_sched->handle_positioning_measurement_request(*req_ptr);
+
+                           if (req_ptr->ue_index.has_value()) {
+                             const du_ue_index_t ue_idx     = req_ptr->ue_index.value();
+                             const uint16_t      rnti_value = to_value(req_ptr->pos_rnti);
+                             if (active_positioning_requests.find(rnti_value) == active_positioning_requests.end() &&
+                                 ue_db.contains(ue_idx)) {
+                               const auto& u = ue_db[ue_idx];
+                               if (u.crnti == req_ptr->pos_rnti) {
+                                 const auto& ul_cfg = u.get_pcell().cfg().init_bwp().ul_ded;
+                                 if (ul_cfg.has_value() && ul_cfg->srs_cfg.has_value()) {
+                                   active_positioning_requests.emplace(rnti_value, req_ptr->cell_index);
+                                 }
+                               }
+                             }
+                           }
                          }})) {
     logger.warning("cell={}: Positioning request was discarded. Cause: Event queue is full",
                    fmt::underlying(derived_req.cell_index));
@@ -799,6 +827,7 @@ void ue_event_manager::handle_positioning_measurement_stop(du_cell_index_t cell_
   if (not common_events.try_push(common_event_t{INVALID_DU_UE_INDEX, [this, cell_index, pos_rnti]() {
                                                   du_cells[cell_index].srs_sched->handle_positioning_measurement_stop(
                                                       cell_index, pos_rnti);
+                                                  active_positioning_requests.erase(to_value(pos_rnti));
                                                 }})) {
     logger.warning("cell={}: Positioning request stop request was discarded. Cause: Event queue is full",
                    fmt::underlying(cell_index));

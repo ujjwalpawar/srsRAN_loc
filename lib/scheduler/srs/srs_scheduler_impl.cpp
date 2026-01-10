@@ -348,7 +348,47 @@ void srs_scheduler_impl::handle_positioning_measurement_stop(du_cell_index_t cel
     return;
   }
 
-  if (not it->ue_index.has_value()) {
+  if (it->ue_index.has_value()) {
+    if (schedule_exporter != nullptr) {
+      const ue_cell_configuration* ue_cfg = get_ue_cfg(pos_rnti);
+      if (ue_cfg != nullptr) {
+        const auto& ul_cfg = ue_cfg->init_bwp().ul_ded;
+        if (ul_cfg.has_value() && ul_cfg->srs_cfg.has_value()) {
+          std::optional<std::string> imeisv = it->imeisv;
+          if (!imeisv) {
+            std::string tracked;
+            if (ue_identity_tracker::get_imeisv_by_crnti(to_value(pos_rnti), tracked)) {
+              imeisv = tracked;
+            }
+          }
+          std::optional<int> rar_ta;
+          auto               ta_opt = ue_identity_tracker::get_latest_ta_by_rnti(to_value(pos_rnti));
+          if (ta_opt) {
+            rar_ta = *ta_opt;
+          }
+
+          if (imeisv) {
+            for (const auto& srs_res : ul_cfg->srs_cfg->srs_res_list) {
+              srs_schedule_stop_descriptor stop_desc;
+              stop_desc.cell_id               = cell_cfg.nr_cgi;
+              stop_desc.rnti                  = pos_rnti;
+              stop_desc.imeisv                = imeisv;
+              if (rar_ta) {
+                stop_desc.rar_ta = rar_ta;
+              }
+              stop_desc.resource              = srs_res;
+              stop_desc.positioning_requested = true;
+              schedule_exporter->handle_stop(stop_desc);
+            }
+          } else {
+            logger.debug("cell={} rnti={}: Skipping positioning stop export due to missing IMEISV",
+                         fmt::underlying(cell_cfg.cell_index),
+                         pos_rnti);
+          }
+        }
+      }
+    }
+  } else {
     // Case of positioning for a neighbor cell UE.
     for (const auto& srs_res : it->srs_to_measure.srs_res_list) {
       rem_resource(it->pos_rnti,
@@ -393,7 +433,7 @@ void srs_scheduler_impl::schedule_slot_srs(srsran::cell_slot_resource_allocator&
   // For the provided slot, check if there are any pending SRS resources to allocate, and allocate them.
   auto& slot_srss = periodic_srs_slot_wheel[slot_alloc.slot.to_uint() % periodic_srs_slot_wheel.size()];
   if (!slot_srss.empty()) {
-    fmt::print("SRS wheel consume: cell={} slot={} srs_entries={}\n",
+    logger.debug("SRS wheel consume: cell={} slot={} srs_entries={}\n",
                fmt::underlying(cell_cfg.cell_index),
                slot_alloc.slot,
                slot_srss.size());
@@ -459,6 +499,7 @@ bool srs_scheduler_impl::allocate_srs_opportunity(cell_slot_resource_allocator& 
 
   // Check if there is a pending positioning request.
   const positioning_measurement_request* pos_req = nullptr;
+  bool                                   is_connected_ue = false;
   for (const positioning_measurement_request& pending_req : pending_pos_requests) {
     if (pending_req.pos_rnti == srs_opportunity.rnti) {
       pos_req = &pending_req;
@@ -470,7 +511,9 @@ bool srs_scheduler_impl::allocate_srs_opportunity(cell_slot_resource_allocator& 
   if (pos_req != nullptr) {
     // Neighbour positioning request (or explicit positioning) takes precedence, even if RNTI is in C-RNTI range.
     srs_res_list = pos_req->srs_to_measure.srs_res_list;
-  } else if (is_crnti(srs_opportunity.rnti)) {
+    is_connected_ue = pos_req->ue_index.has_value();
+  } 
+  else if (is_crnti(srs_opportunity.rnti)) {
     // SRS of UE connected to the cell.
 
     // Fetch UE config.
@@ -493,6 +536,7 @@ bool srs_scheduler_impl::allocate_srs_opportunity(cell_slot_resource_allocator& 
     }
 
     srs_res_list = ue_cfg->init_bwp().ul_ded->srs_cfg.value().srs_res_list;
+    is_connected_ue = true;
 
   } else {
     // SRS for UE of neighbor cell with non-C-RNTI.
@@ -529,7 +573,7 @@ bool srs_scheduler_impl::allocate_srs_opportunity(cell_slot_resource_allocator& 
 
   // Trace scheduled SRS (helps verify serving/neighbour alignment).
   if (pos_req && pos_req->imeisv) {
-    fmt::print("SRS sched: cell={}/{} rnti={} imeisv={} sfn={} slot={} ue_res={} positioning={}\n",
+    logger.debug("SRS sched: cell={}/{} rnti={} imeisv={} sfn={} slot={} ue_res={} positioning={}\n",
                cell_cfg.nr_cgi.plmn_id.to_string(),
                cell_cfg.nr_cgi.nci.value(),
                fmt::format("{:#x}", to_value(srs_opportunity.rnti)),
@@ -538,18 +582,16 @@ bool srs_scheduler_impl::allocate_srs_opportunity(cell_slot_resource_allocator& 
                slot_alloc.slot.slot_index(),
                fmt::underlying(srs_res->id.ue_res_id),
                pos_req != nullptr);
-  } else {
-    fmt::print("SRS sched: cell={}/{} rnti={} sfn={} slot={} ue_res={} positioning={}\n",
-               cell_cfg.nr_cgi.plmn_id.to_string(),
-               cell_cfg.nr_cgi.nci.value(),
-               fmt::format("{:#x}", to_value(srs_opportunity.rnti)),
-               slot_alloc.slot.sfn(),
-               slot_alloc.slot.slot_index(),
-               fmt::underlying(srs_res->id.ue_res_id),
-               pos_req != nullptr);
   }
 
   if (schedule_exporter != nullptr) {
+    if (!is_connected_ue) {
+      logger.debug("cell={} rnti={}: Skipping SRS export for slot={} (UE not connected)",
+                   fmt::underlying(cell_cfg.cell_index),
+                   srs_opportunity.rnti,
+                   sl_srs);
+      return true;
+    }
     std::optional<std::string> imeisv;
     std::optional<int>         rar_ta;
     if (pos_req && pos_req->imeisv) {

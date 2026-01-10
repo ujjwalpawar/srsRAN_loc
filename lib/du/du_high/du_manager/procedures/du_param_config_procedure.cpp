@@ -96,6 +96,10 @@ bool du_param_config_procedure::handle_cell_config_updates()
       cell_recfg.positioning = cell_to_update.positioning;
       needs_reconfig         = true;
     }
+    if (cell_to_update.positioning_stop.has_value()) {
+      cell_recfg.positioning_stop = cell_to_update.positioning_stop;
+      needs_reconfig              = true;
+    }
 
     if (needs_reconfig) {
       changed_cells.push_back(cell_index);

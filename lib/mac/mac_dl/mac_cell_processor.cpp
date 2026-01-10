@@ -200,6 +200,9 @@ async_task<mac_cell_reconfig_response> mac_cell_processor::reconfigure(const mac
       // Positioning measurement request has been received.
       CORO_AWAIT(sched.handle_positioning_measurement_request(cell_cfg.cell_index, request.positioning.value()));
     }
+    if (request.positioning_stop.has_value()) {
+      CORO_AWAIT(sched.handle_positioning_measurement_stop(cell_cfg.cell_index, request.positioning_stop.value()));
+    }
 
     CORO_RETURN(resp);
   });

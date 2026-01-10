@@ -22,6 +22,8 @@
 
 #include "cell_scheduler.h"
 #include "logging/scheduler_metrics_handler.h"
+#include "srs/srs_schedule_file_exporter.h"
+#include "srs/srs_schedule_remote_exporter.h"
 #include "ue_scheduling/ue_scheduler_impl.h"
 
 using namespace srsran;
@@ -62,7 +64,11 @@ cell_scheduler::cell_scheduler(const scheduler_expert_config&                  s
                    get_tracer_thres(cell_cfg),
                    8)
 {
-  srs_exporter = std::make_unique<srs_schedule_file_exporter>("descriptor.json");
+  if (!sched_cfg.positioning_export.neighbours.empty()) {
+    srs_exporter = std::make_unique<srs_schedule_remote_exporter>(sched_cfg.positioning_export);
+  } else {
+    srs_exporter = std::make_unique<srs_schedule_file_exporter>("descriptor.json");
+  }
 
   // Register new cell in the UE scheduler.
   ue_sched.add_cell(ue_scheduler_cell_params{

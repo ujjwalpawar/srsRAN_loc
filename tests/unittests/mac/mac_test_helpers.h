@@ -154,6 +154,13 @@ public:
   {
     return launch_no_op_task(mac_cell_positioning_measurement_response{});
   }
+
+  async_task<void>
+  handle_positioning_measurement_stop(du_cell_index_t                                      cell_index,
+                                      const mac_cell_positioning_measurement_stop_request& req) override
+  {
+    return launch_no_op_task();
+  }
 };
 
 class dummy_mac_cell_result_notifier : public mac_cell_result_notifier

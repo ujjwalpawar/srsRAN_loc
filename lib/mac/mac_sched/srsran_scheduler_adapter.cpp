@@ -305,6 +305,13 @@ srsran_scheduler_adapter::handle_positioning_measurement_request(du_cell_index_t
   return cell_handlers[cell_index].pos_handler->handle_positioning_measurement_request(req);
 }
 
+async_task<void>
+srsran_scheduler_adapter::handle_positioning_measurement_stop(du_cell_index_t                                      cell_index,
+                                                              const mac_cell_positioning_measurement_stop_request& req)
+{
+  return cell_handlers[cell_index].pos_handler->handle_positioning_measurement_stop(req);
+}
+
 void srsran_scheduler_adapter::sched_config_notif_adapter::on_ue_config_complete(du_ue_index_t ue_index,
                                                                                  bool          ue_creation_result)
 {

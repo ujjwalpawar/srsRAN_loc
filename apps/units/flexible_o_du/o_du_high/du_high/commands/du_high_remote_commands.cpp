@@ -25,6 +25,7 @@
 #include "nlohmann/json.hpp"
 #include "srsran/ran/du_types.h"
 #include "srsran/ran/nr_cgi.h"
+#include "srsran/ran/rnti.h"
 #include "srsran/ran/srs/srs_configuration.h"
 #include "srsran/scheduler/ue_identity_tracker.h"
 #include "srsran/scheduler/ta_shared.h"
@@ -159,6 +160,19 @@ error_type<std::string> parse_rnti(const nlohmann::json& obj, rnti_t& rnti)
   return make_unexpected("'rnti' object value type should be a string or integer");
 }
 
+error_type<std::string>
+resolve_stop_rnti(const nlohmann::json& schedule, const std::optional<std::string>& imeisv, rnti_t& pos_rnti)
+{
+  if (schedule.find("rnti") != schedule.end()) {
+    return parse_rnti(schedule, pos_rnti);
+  }
+  if (imeisv) {
+    pos_rnti = make_positioning_rnti(*imeisv);
+    return {};
+  }
+  return make_unexpected("'rnti' object is missing and 'imeisv' object is not provided");
+}
+
 srs_group_or_sequence_hopping
 parse_group_or_sequence_hopping(std::string_view value, error_type<std::string>& err)
 {
@@ -179,7 +193,7 @@ srs_resource_type parse_resource_type(std::string_view value, error_type<std::st
   if (value == "aperiodic") {
     return srs_resource_type::aperiodic;
   }
-  if (value == "semi_persistent") {
+  if (value == "semi_persistent" || value == "semi-persistent") {
     return srs_resource_type::semi_persistent;
   }
   if (value == "periodic") {
@@ -265,9 +279,12 @@ parse_srs_resource(const nlohmann::json& resource_json, srs_config::srs_resource
 
   const auto& periodicity = resource_json.find("periodicity");
   if (periodicity == resource_json.end() || !periodicity->is_object()) {
-    return make_unexpected("'periodicity' object is missing and it is mandatory");
+    return make_unexpected("'periodicity' object is missing and it is mandatory for positioning");
   }
   RETURN_IF_ERROR(fetch_number(periodicity.value(), "t_srs", tmp));
+  if (tmp == 0) {
+    return make_unexpected("'periodicity.t_srs' must be greater than 0 for positioning");
+  }
   srs_periodicity period = static_cast<srs_periodicity>(tmp);
   RETURN_IF_ERROR(fetch_number(periodicity.value(), "offset", tmp));
   resource.periodicity_and_offset =
@@ -318,6 +335,20 @@ error_type<std::string> positioning_trigger_remote_command::execute(const nlohma
       if (auto err = parse_rnti(schedule_key.value(), *pos_req.rnti); !err) {
         return err;
       }
+    }
+    std::optional<unsigned> schedule_sfn;
+    std::optional<unsigned> schedule_slot;
+    if (auto sfn_field = schedule_key->find("sfn");
+        sfn_field != schedule_key->end() && sfn_field->is_number_unsigned()) {
+      schedule_sfn = sfn_field->get<unsigned>();
+    }
+    if (auto slot_field = schedule_key->find("slot");
+        slot_field != schedule_key->end() && slot_field->is_number_unsigned()) {
+      schedule_slot = slot_field->get<unsigned>();
+    }
+    if (auto sched_id_field = schedule_key->find("schedule_id");
+        sched_id_field != schedule_key->end() && sched_id_field->is_string()) {
+      positioning_logger.info("Positioning request schedule_id={}", sched_id_field->get_ref<const std::string&>());
     }
     std::string rnti_str =
         pos_req.rnti ? fmt::format("{:#x}", to_value(*pos_req.rnti)) : std::string("derived_from_imeisv");
@@ -412,14 +443,18 @@ error_type<std::string> positioning_trigger_remote_command::execute(const nlohma
                                     resources_to_add.front().periodicity_and_offset->offset);
     }
 
+    const std::string sfn_str  = schedule_sfn ? fmt::format("{}", *schedule_sfn) : "n/a";
+    const std::string slot_str = schedule_slot ? fmt::format("{}", *schedule_slot) : "n/a";
     positioning_logger.info(
-        "Positioning request received: cell={} imeisv={} rnti={} cell_res={} ue_res={} periodicity={}",
+        "Positioning request received: cell={} imeisv={} rnti={} cell_res={} ue_res={} periodicity={} sfn={} slot={}",
         cell_str,
         pos_req.imeisv.value_or("unknown"),
         rnti_str,
         resources_to_add.empty() ? -1 : resources_to_add.front().id.cell_res_id,
         resources_to_add.empty() ? 0u : static_cast<unsigned>(resources_to_add.front().id.ue_res_id),
-        periodicity_str);
+        periodicity_str,
+        sfn_str,
+        slot_str);
 
     srs_du::du_cell_param_config_request cell_req;
     cell_req.nr_cgi      = cell_id;
@@ -436,4 +471,57 @@ error_type<std::string> positioning_trigger_remote_command::execute(const nlohma
     return {};
   }
   return make_unexpected("Positioning request failed to be applied by the DU");
+}
+
+error_type<std::string> positioning_stop_remote_command::execute(const nlohmann::json& json)
+{
+  auto cells_key = json.find("cells");
+  if (cells_key == json.end()) {
+    return make_unexpected("'cells' object is missing and it is mandatory");
+  }
+  if (!cells_key->is_array()) {
+    return make_unexpected("'cells' object value type should be an array");
+  }
+
+  srs_du::du_param_config_request req;
+  for (const auto& cell : cells_key->items()) {
+    auto nr_cgi = parse_nr_cgi_from_json(cell.value());
+    if (!nr_cgi) {
+      return make_unexpected(nr_cgi.error());
+    }
+    nr_cell_global_id_t cell_id = nr_cgi.value();
+
+    auto schedule_key = cell.value().find("schedule");
+    if (schedule_key == cell.value().end() || !schedule_key->is_object()) {
+      return make_unexpected("'schedule' object is missing and it is mandatory");
+    }
+
+    std::optional<std::string> imeisv;
+    if (auto imeisv_key = schedule_key->find("imeisv"); imeisv_key != schedule_key->end() && imeisv_key->is_string()) {
+      imeisv = imeisv_key->get<std::string>();
+    }
+
+    rnti_t pos_rnti = rnti_t::INVALID_RNTI;
+    if (auto err = resolve_stop_rnti(schedule_key.value(), imeisv, pos_rnti); !err) {
+      return err;
+    }
+
+    mac_cell_positioning_measurement_stop_request stop_req;
+    stop_req.pos_rnti = pos_rnti;
+
+    srs_du::du_cell_param_config_request cell_req;
+    cell_req.nr_cgi          = cell_id;
+    cell_req.positioning_stop = std::move(stop_req);
+    req.cells.push_back(std::move(cell_req));
+  }
+
+  if (req.cells.empty()) {
+    return make_unexpected("No positioning stops provided");
+  }
+
+  const auto& result = configurator.handle_operator_config_request(req);
+  if (result.success) {
+    return {};
+  }
+  return make_unexpected("Positioning stop failed to be applied by the DU");
 }

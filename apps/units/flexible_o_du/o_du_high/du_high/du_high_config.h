@@ -423,6 +423,17 @@ struct du_high_unit_srs_config {
   unsigned sequence_id_reuse_factor = 1;
 };
 
+/// Positioning export configuration for neighbouring base stations.
+struct du_high_unit_positioning_neighbor_config {
+  std::string address;
+  unsigned    port = 5555;
+  std::string path = "/";
+};
+
+struct du_high_unit_positioning_config {
+  std::vector<du_high_unit_positioning_neighbor_config> neighbours;
+};
+
 /// Parameters that are used to initialize or build the \c PhysicalCellGroupConfig, TS 38.331.
 struct du_high_unit_phy_cell_group_config {
   /// \brief \c p-NR-FR1, part of \c PhysicalCellGroupConfig, TS 38.331. Values: {-30,...,33}.
@@ -787,6 +798,8 @@ struct du_high_unit_base_cell_config {
   du_high_unit_pucch_config pucch_cfg;
   /// SRS configuration.
   du_high_unit_srs_config srs_cfg;
+  /// Positioning export configuration.
+  du_high_unit_positioning_config positioning_cfg;
   /// Physical Cell Group parameters.
   du_high_unit_phy_cell_group_config pcg_cfg;
   /// MAC Cell Gropup parameters.

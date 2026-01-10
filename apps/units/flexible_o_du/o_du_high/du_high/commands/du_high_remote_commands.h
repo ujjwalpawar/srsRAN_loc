@@ -61,4 +61,20 @@ private:
   srs_du::du_configurator& configurator;
 };
 
+/// Remote command that stops a positioning measurement.
+class positioning_stop_remote_command : public app_services::remote_command
+{
+public:
+  explicit positioning_stop_remote_command(srs_du::du_configurator& configurator_) : configurator(configurator_) {}
+
+  std::string_view get_name() const override { return "positioning_stop"; }
+
+  std::string_view get_description() const override { return "Stops a positioning measurement on the DU"; }
+
+  error_type<std::string> execute(const nlohmann::json& json) override;
+
+private:
+  srs_du::du_configurator& configurator;
+};
+
 } // namespace srsran

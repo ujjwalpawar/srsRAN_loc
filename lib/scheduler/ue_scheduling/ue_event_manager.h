@@ -30,6 +30,7 @@
 #include "srsran/adt/mpmc_queue.h"
 #include "srsran/adt/unique_function.h"
 #include "srsran/ran/du_types.h"
+#include <unordered_map>
 
 namespace srsran {
 
@@ -175,6 +176,8 @@ private:
   slot_point last_sl;
 
   std::unique_ptr<ue_dl_buffer_occupancy_manager> dl_bo_mng;
+
+  std::unordered_map<uint16_t, du_cell_index_t> active_positioning_requests;
 };
 
 } // namespace srsran

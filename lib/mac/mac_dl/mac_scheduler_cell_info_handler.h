@@ -63,6 +63,13 @@ public:
   virtual async_task<mac_cell_positioning_measurement_response>
   handle_positioning_measurement_request(du_cell_index_t                                 cell_index,
                                          const mac_cell_positioning_measurement_request& req) = 0;
+
+  /// \brief Handle request to stop a UE positioning measurement.
+  /// \param[in] cell_index Index of the cell for which the measurement is directed.
+  /// \param[in] req Request to stop a UE positioning measurement.
+  virtual async_task<void>
+  handle_positioning_measurement_stop(du_cell_index_t                                      cell_index,
+                                      const mac_cell_positioning_measurement_stop_request& req) = 0;
 };
 
 } // namespace srsran

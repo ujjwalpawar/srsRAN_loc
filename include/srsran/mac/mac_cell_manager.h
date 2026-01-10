@@ -32,6 +32,12 @@ struct mac_cell_positioning_measurement_request {
   srs_config srs_to_meas;
 };
 
+/// MAC cell positioning measurement stop request.
+struct mac_cell_positioning_measurement_stop_request {
+  /// Positioning RNTI associated with the measurement to stop.
+  rnti_t pos_rnti = rnti_t::INVALID_RNTI;
+};
+
 /// MAC cell positioning measurement response.
 struct mac_cell_positioning_measurement_response {
   std::vector<phy_time_unit> ul_rtoas;
@@ -43,6 +49,8 @@ struct mac_cell_reconfig_request {
   byte_buffer new_sib1_buffer;
   /// If not empty, the MAC is requested to collect a new positioning measurement.
   std::optional<mac_cell_positioning_measurement_request> positioning;
+  /// If not empty, the MAC is requested to stop a positioning measurement.
+  std::optional<mac_cell_positioning_measurement_stop_request> positioning_stop;
 };
 
 struct mac_cell_reconfig_response {

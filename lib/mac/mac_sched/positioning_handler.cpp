@@ -57,6 +57,13 @@ public:
     return launch_no_op_task(mac_cell_positioning_measurement_response{});
   }
 
+  async_task<void>
+  handle_positioning_measurement_stop(const mac_cell_positioning_measurement_stop_request& req) override
+  {
+    sched.handle_positioning_measurement_stop(cell_index, req.pos_rnti);
+    return launch_no_op_task();
+  }
+
   void handle_srs_indication(const mac_srs_indication_message& msg) override
   {
     // No-op: upstream handling not required for exporting schedules.

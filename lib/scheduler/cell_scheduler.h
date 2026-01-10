@@ -38,8 +38,8 @@
 #include "pucch_scheduling/pucch_guardbands_scheduler.h"
 #include "uci_scheduling/uci_allocator_impl.h"
 #include "ue_scheduling/ue_scheduler.h"
-#include "srs/srs_schedule_file_exporter.h"
 #include "srsran/scheduler/config/scheduler_config.h"
+#include "srsran/scheduler/srs_schedule_exporter.h"
 #include "srsran/support/tracing/rusage_trace_recorder.h"
 #include <memory>
 

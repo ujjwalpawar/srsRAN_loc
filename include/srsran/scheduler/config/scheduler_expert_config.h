@@ -34,6 +34,7 @@
 #include "srsran/ran/sib/sib_configuration.h"
 #include "srsran/ran/slot_pdu_capacity_constants.h"
 #include <chrono>
+#include <string>
 #include <variant>
 #include <vector>
 
@@ -221,12 +222,24 @@ struct scheduler_paging_expert_config {
   unsigned          max_paging_retries  = 2;
 };
 
+/// \brief Export configuration for positioning SRS schedules.
+struct scheduler_positioning_export_endpoint {
+  std::string address;
+  unsigned    port = 5555;
+  std::string path = "/";
+};
+
+struct scheduler_positioning_export_config {
+  std::vector<scheduler_positioning_export_endpoint> neighbours;
+};
+
 /// \brief Scheduling statically configurable expert parameters.
 struct scheduler_expert_config {
   scheduler_si_expert_config     si;
   scheduler_ra_expert_config     ra;
   scheduler_paging_expert_config pg;
   scheduler_ue_expert_config     ue;
+  scheduler_positioning_export_config positioning_export;
   bool                           log_broadcast_messages       = false;
   bool                           log_high_latency_diagnostics = false;
   std::chrono::milliseconds      metrics_report_period{1000};

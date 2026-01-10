@@ -1138,6 +1138,33 @@ static void configure_cli11_srs_args(CLI::App& app, du_high_unit_srs_config& srs
       ->check(CLI::IsMember({1, 2, 3, 5, 6, 10, 15, 30}));
 }
 
+static void configure_cli11_positioning_neighbor_args(CLI::App& app,
+                                                      du_high_unit_positioning_neighbor_config& neighbour_params)
+{
+  add_option(app, "--addr", neighbour_params.address, "Neighbour remote-control address")->capture_default_str();
+  add_option(app, "--port", neighbour_params.port, "Neighbour remote-control port")
+      ->capture_default_str()
+      ->check(CLI::Range(1U, 65535U));
+  add_option(app, "--path", neighbour_params.path, "WebSocket path")->capture_default_str();
+}
+
+static void configure_cli11_positioning_args(CLI::App& app, du_high_unit_positioning_config& positioning_params)
+{
+  auto neighbours_lambda = [&positioning_params](const std::vector<std::string>& values) {
+    positioning_params.neighbours.resize(values.size());
+    for (unsigned i = 0, e = values.size(); i != e; ++i) {
+      CLI::App subapp("Positioning neighbour", "Positioning neighbour config, item #" + std::to_string(i));
+      subapp.config_formatter(create_yaml_config_parser());
+      subapp.allow_config_extras(CLI::config_extras_mode::capture);
+      configure_cli11_positioning_neighbor_args(subapp, positioning_params.neighbours[i]);
+      std::istringstream ss(values[i]);
+      subapp.parse_from_stream(ss);
+    }
+  };
+
+  add_option_cell(app, "--neighbours", neighbours_lambda, "Neighbour base stations for positioning schedule export");
+}
+
 static void configure_cli11_si_sched_info(CLI::App& app, du_high_unit_sib_config::si_sched_info_config& si_sched_info)
 {
   add_option(app, "--si_period", si_sched_info.si_period_rf, "SI message scheduling period in radio frames")
@@ -1553,6 +1580,10 @@ static void configure_cli11_common_cell_args(CLI::App& app, du_high_unit_base_ce
   // SRS configuration.
   CLI::App* srs_subcmd = add_subcommand(app, "srs", "SRS parameters");
   configure_cli11_srs_args(*srs_subcmd, cell_params.srs_cfg);
+
+  // Positioning export configuration.
+  CLI::App* positioning_subcmd = add_subcommand(app, "positioning", "Positioning export parameters");
+  configure_cli11_positioning_args(*positioning_subcmd, cell_params.positioning_cfg);
 
   // PRACH configuration.
   CLI::App* prach_subcmd = add_subcommand(app, "prach", "PRACH parameters");
