@@ -259,7 +259,7 @@ void realtime_timing_worker::poll()
   static thread_local uint64_t target_start_ns  = 0;
   static thread_local bool send                 = false;
   static thread_local bool log_slot_sequence    = false;
-  static thread_local unsigned remaining_slots  = 0;
+  static thread_local unsigned remaining_slots  = 0; 
   static thread_local int log_counter           = 0;
   if (recv_once) {
     if (!send) {
