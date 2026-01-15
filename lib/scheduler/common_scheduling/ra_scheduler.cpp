@@ -736,7 +736,7 @@ void ra_scheduler::fill_rar_grant(cell_resource_allocator&         res_alloc,
     // Add MAC SDU with UL grant (Msg3) in RAR PDU.
     rar_ul_grant& msg3_info            = rar.grants.emplace_back();
     msg3_info.rapid                    = pending_msg3.preamble.preamble_id;
-    msg3_info.ta                       = pending_msg3.preamble.time_advance.to_Ta(get_ul_bwp_cfg().scs);
+    msg3_info.ta                       = pending_msg3.preamble.time_advance.to_Ta(get_ul_bwp_cfg().scs); // Fixed TA offset.
     msg3_info.temp_crnti               = pending_msg3.preamble.tc_rnti;
     msg3_info.time_resource_assignment = msg3_candidate.pusch_td_res_index;
     msg3_info.freq_resource_assignment = ra_frequency_type1_get_riv(ra_frequency_type1_configuration{

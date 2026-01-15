@@ -250,70 +250,7 @@ calculate_slot_point(subcarrier_spacing scs, uint64_t gps_seconds, uint32_t frac
 
 void realtime_timing_worker::poll()
 {
-
-  static thread_local int udp_recv_fd = create_nonblocking_udp_receiver(9000); 
-  static thread_local std::string peer_ip = "10.0.0.1";
-  static thread_local int peer_port = 9001;
-  static thread_local bool recv_once            = true;
-  static thread_local bool waiting_start_time   = false;
-  static thread_local uint64_t target_start_ns  = 0;
-  static thread_local bool send                 = false;
-  static thread_local bool log_slot_sequence    = false;
-  static thread_local unsigned remaining_slots  = 0; 
-  static thread_local int log_counter           = 0;
-  if (recv_once) {
-    if (!send) {
-      send_slot_info(peer_ip, peer_port, 1);
-      send = true;
-    }
-
-    start_message msg{};
-    if (!try_receive_start_message(msg, udp_recv_fd)) {
-      return;
-    }
-
-    if (msg.magic != START_MESSAGE_MAGIC) {
-      logger.warning("Received start message with invalid magic 0x{:08x}", msg.magic);
-      return;
-    }
-
-    target_start_ns     = msg.start_time_ns;
-    waiting_start_time  = true;
-    recv_once           = false;
-
-    auto start_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(gps_clock::now().time_since_epoch()).count();
-    logger.info("[GNB] Received start command. now={} ns target={} ns", start_ns, target_start_ns);
-    std::cout << "[GNB] Received start command. now=" << start_ns << " ns target=" << target_start_ns << " ns" << std::endl;
-  }
-
-  gps_clock::time_point now;
-  bool                  now_initialized = false;
-
-  if (waiting_start_time) {
-    now             = gps_clock::now();
-    now_initialized = true;
-    uint64_t now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
-
-    if (now_ns < target_start_ns) {
-      uint64_t wait_ns = target_start_ns - now_ns;
-      std::this_thread::sleep_for(std::chrono::nanoseconds(wait_ns - 100));
-      return;
-    }
-
-    waiting_start_time = false;
-    log_slot_sequence  = true;
-    remaining_slots    = 10;
-    log_counter        = 0;
-    logger.info("[GNB] Starting slot logging at {} ns", now_ns);
-    std::cout << "[GNB] Starting slot logging at " << now_ns << " ns" << std::endl;
-
-    auto ns_fraction_start = calculate_ns_fraction_from(now);
-    previous_symb_index    = get_symbol_index(ns_fraction_start, symbol_duration);
-  }
-
-  if (!now_initialized) {
-    now = gps_clock::now();
-  }
+  auto now         = gps_clock::now();
   auto ns_fraction = calculate_ns_fraction_from(now);
 
   unsigned current_symbol_index = get_symbol_index(ns_fraction, symbol_duration);
@@ -343,23 +280,6 @@ void realtime_timing_worker::poll()
                            1000 / get_nof_slots_per_subframe(scs)),
       current_symbol_index % nof_symbols_per_slot,
       nof_symbols_per_slot);
-
-  if (SRSRAN_UNLIKELY(log_slot_sequence && remaining_slots > 0 && symbol_point.get_symbol_index() == 0)) {
-    slot_point slot = symbol_point.get_slot();
-    auto slot_time_ns =
-        std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
-    logger.info("[GNB] Slot sync sample {}: SFN={} slot={} time={} ns",
-                ++log_counter,
-                slot.sfn(),
-                slot.slot_index(),
-                slot_time_ns);
-    std::cout << "[GNB] Slot sync sample " << log_counter << ": SFN=" << slot.sfn()
-              << " slot=" << slot.slot_index() << " time=" << slot_time_ns << " ns" << std::endl;
-    --remaining_slots;
-    if (remaining_slots == 0) {
-      log_slot_sequence = false;
-    }
-  }
 
   for (unsigned i = 0; i != delta; ++i) {
     unsigned skipped_symbol_id = delta - 1 - i;

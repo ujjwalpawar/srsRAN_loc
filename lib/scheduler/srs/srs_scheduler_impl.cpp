@@ -519,19 +519,19 @@ bool srs_scheduler_impl::allocate_srs_opportunity(cell_slot_resource_allocator& 
     // Fetch UE config.
     const ue_cell_configuration* ue_cfg = get_ue_cfg(srs_opportunity.rnti);
     if (ue_cfg == nullptr) {
-      fmt::print("SRS alloc fail: cell={} rnti={:#x} slot={} (UE not found)\n",
-                 fmt::underlying(cell_cfg.cell_index),
-                 to_value(srs_opportunity.rnti),
-                 sl_srs);
+      // fmt::print("SRS alloc fail: cell={} rnti={:#x} slot={} (UE not found)\n",
+      //            fmt::underlying(cell_cfg.cell_index),
+      //            to_value(srs_opportunity.rnti),
+      //            sl_srs);
       return false;
     }
 
     if (not ue_cfg->is_ul_enabled(sl_srs)) {
-      fmt::print("SRS alloc fail: cell={} rnti={:#x} res_id={} slot={} (UL not enabled)\n",
-                 fmt::underlying(cell_cfg.cell_index),
-                 to_value(srs_opportunity.rnti),
-                 fmt::underlying(srs_opportunity.srs_res_id),
-                 sl_srs);
+      // fmt::print("SRS alloc fail: cell={} rnti={:#x} res_id={} slot={} (UL not enabled)\n",
+      //            fmt::underlying(cell_cfg.cell_index),
+      //            to_value(srs_opportunity.rnti),
+      //            fmt::underlying(srs_opportunity.srs_res_id),
+      //            sl_srs);
       return false;
     }
 
