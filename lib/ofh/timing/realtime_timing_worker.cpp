@@ -23,15 +23,9 @@
 #include "realtime_timing_worker.h"
 #include "srsran/instrumentation/traces/ofh_traces.h"
 #include "srsran/ofh/timing/ofh_ota_symbol_boundary_notifier.h"
-#include <cerrno>
-#include <endian.h>
-#include <cstring>
 #include <future>
 #include <thread>
-#include <arpa/inet.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <iostream>
+
 using namespace srsran;
 using namespace ofh;
 
@@ -68,74 +62,6 @@ struct gps_clock {
 };
 
 } // namespace
-
-
-
-
-void send_slot_info(const std::string& ip, int port, int info)
-{
-  int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-  if (sockfd < 0) return;
-
-  sockaddr_in dest{};
-  dest.sin_family = AF_INET;
-  dest.sin_port = htons(port);
-  inet_pton(AF_INET, ip.c_str(), &dest.sin_addr);
-
-  sendto(sockfd, &info, sizeof(info), 0, (sockaddr*)&dest, sizeof(dest));
-  close(sockfd);
-}
-
-struct start_message {
-  uint32_t magic;
-  uint64_t start_time_ns;
-};
-
-static constexpr uint32_t START_MESSAGE_MAGIC = 0xABCD1234U;
-
-static bool try_receive_start_message(start_message& msg, int sockfd)
-{
-  sockaddr_in sender_addr{};
-  socklen_t sender_len = sizeof(sender_addr);
-  ssize_t bytes = recvfrom(sockfd, &msg, sizeof(msg), 0,
-                           reinterpret_cast<sockaddr*>(&sender_addr), &sender_len);
-  if (bytes == -1) {
-    if (errno == EAGAIN || errno == EWOULDBLOCK) {
-      return false;
-    }
-    std::cerr << "recvfrom failed: " << strerror(errno) << std::endl;
-    return false;
-  }
-
-  if (static_cast<size_t>(bytes) != sizeof(msg)) {
-    return false;
-  }
-
-  msg.magic        = ntohl(msg.magic);
-  msg.start_time_ns = be64toh(msg.start_time_ns);
-  return true;
-}
-
-int create_nonblocking_udp_receiver(int port)
-{
-  int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-  if (sockfd < 0) return -1;
-
-  int flags = fcntl(sockfd, F_GETFL, 0);
-  fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
-
-  sockaddr_in addr{};
-  addr.sin_family = AF_INET;
-  addr.sin_port = htons(port);
-  addr.sin_addr.s_addr = INADDR_ANY;
-
-  if (bind(sockfd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-    close(sockfd);
-    return -1;
-  }
-
-  return sockfd;
-}
 
 /// Calculates the fractional part inside a second from the given time point.
 static std::chrono::nanoseconds calculate_ns_fraction_from(gps_clock::time_point tp)
