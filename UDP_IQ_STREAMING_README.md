@@ -10,21 +10,35 @@ The PHY layer now transmits IQ correlation samples and time-domain channel estim
 
 **Per TA estimation event (PUCCH/SRS):**
 - **Correlation vector**: Time-domain correlation power (magnitude squared)
-- **IQ samples**: Complex time-domain channel observations from last antenna slice
-- **Metadata**: IMEISV, C-RNTI, TA value, timestamp
+- **IQ samples**: Complex time-domain channel observations from all antenna slices
+- **Metadata**: IMEISV, C-RNTI, TA value, timestamp, subframe/slot index
+- **SRS allocation**: OFDM symbol indices and subcarrier indices (per UE)
 
 ### Packet Structure
 
 ```c
-struct iq_udp_packet {
+struct iq_udp_packet_header {
   uint64_t timestamp;           // Nanosecond timestamp
   char imeisv[16];              // UE IMEISV identifier
   uint16_t c_rnti;              // C-RNTI value
+  uint16_t ta_flags;            // Bit-mask flags (bit0=1 -> TA came from RAR)
   int32_t ta_value;             // Current TA value
+  uint64_t ta_update_time;      // Time when TA was last updated
+  uint16_t subframe_index;      // Subframe index within the radio frame (0..9)
+  uint16_t slot_index;          // Slot index within the radio frame
+  uint16_t nof_symbols;         // Number of OFDM symbols carrying SRS
+  uint16_t nof_subcarriers;     // Number of subcarriers carrying SRS
   uint32_t nof_correlation;     // Number of correlation samples
-  uint32_t nof_iq_samples;      // Number of IQ samples
-  float correlation[4096];      // Real correlation values
-  float iq_samples[8192];       // Interleaved I/Q (complex samples)
+  uint32_t nof_iq_samples;      // Number of IQ samples (complex)
+  uint32_t nof_slices;          // Number of antenna slices
+};
+
+struct iq_udp_packet {
+  iq_udp_packet_header header;
+  float correlation[nof_correlation];       // Real correlation values
+  float iq_samples[2 * nof_iq_samples];      // Interleaved I/Q (complex samples)
+  uint16_t srs_symbols[nof_symbols];         // OFDM symbol indices carrying SRS
+  uint16_t srs_subcarriers[nof_subcarriers]; // Subcarrier indices carrying SRS
 };
 ```
 
@@ -54,7 +68,7 @@ In another terminal:
 
 ```bash
 cd /home/netsys/srsran_april2025
-python3 udp_iq_receiver.py 12345
+python3 udp_iq_receiver_dynamic.py --port 12345
 ```
 
 ## Features
@@ -150,8 +164,8 @@ Solutions:
 ### Wrong data received
 
 Verify struct alignment matches between C++ and Python:
-- C++: `sizeof(iq_udp_packet)` should be 8 + 16 + 2 + 4 + 4 + 4 + 4096*4 + 8192*4 = 49190 bytes
-- Python: Check PACKET_HEADER_SIZE and MAX_SAMPLES
+- Header size is 60 bytes (packed)
+- Total size = header + `4 * nof_correlation` + `4 * 2 * nof_iq_samples` + `2 * nof_symbols` + `2 * nof_subcarriers`
 
 ## Advanced Usage
 

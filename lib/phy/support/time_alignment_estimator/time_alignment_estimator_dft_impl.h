@@ -50,6 +50,10 @@ struct __attribute__((packed)) iq_udp_packet_header {
   uint16_t ta_flags;                 // Bit-mask flags (bit0=1 -> TA came from RAR)
   int32_t ta_value;
   uint64_t ta_update_time;           // Time when TA was last updated
+  uint16_t subframe_index;           // Subframe index within the radio frame (0..9)
+  uint16_t slot_index;               // Slot index within the radio frame
+  uint16_t nof_symbols;              // Number of OFDM symbols carrying SRS
+  uint16_t nof_subcarriers;          // Number of subcarriers carrying SRS
   uint32_t nof_correlation;
   uint32_t nof_iq_samples;
   uint32_t nof_slices;               // Number of antenna slices
@@ -60,6 +64,8 @@ struct iq_udp_packet {
   iq_udp_packet_header header;
   std::vector<float> correlation;    // Real correlation values
   std::vector<float> iq_samples;     // Freq-domain symbols from ALL slices (flattened, I/Q interleaved)
+  std::vector<uint16_t> srs_symbols;     // OFDM symbol indices carrying SRS
+  std::vector<uint16_t> srs_subcarriers; // Subcarrier indices carrying SRS
 };
 
 /// Asynchronous UDP sender using lock-free queue
@@ -139,7 +145,16 @@ public:
 
   // See interface for documentation.
   time_alignment_measurement
-  estimate_with_logfile(const re_buffer_reader<cf_t>& symbols, unsigned stride, subcarrier_spacing scs, double max_ta, std::string filename, uint16_t rnti) override;
+  estimate_with_logfile(const re_buffer_reader<cf_t>& symbols,
+                        unsigned                      stride,
+                        subcarrier_spacing            scs,
+                        double                        max_ta,
+                        std::string                   filename,
+                        uint16_t                      rnti,
+                        uint16_t                      subframe_index,
+                        uint16_t                      slot_index,
+                        span<const uint16_t>          srs_symbols,
+                        span<const uint16_t>          srs_subcarriers) override;
 
 private:
   /// DFT processors.

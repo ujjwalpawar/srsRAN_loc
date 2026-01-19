@@ -127,10 +127,14 @@ void async_udp_sender::sender_thread() {
     
     // Send without blocking main thread
     if (sockfd_ >= 0) {
-      // Calculate total size: header + correlation data + IQ data
-      size_t total_size = sizeof(iq_udp_packet_header) + 
+      // Calculate total size: header + correlation data + IQ data + SRS lists
+      size_t symbols_size = packet.srs_symbols.size() * sizeof(uint16_t);
+      size_t subcarriers_size = packet.srs_subcarriers.size() * sizeof(uint16_t);
+      size_t total_size = sizeof(iq_udp_packet_header) +
                          packet.correlation.size() * sizeof(float) +
-                         packet.iq_samples.size() * sizeof(float);
+                         packet.iq_samples.size() * sizeof(float) +
+                         symbols_size +
+                         subcarriers_size;
       
       // Allocate buffer for complete packet
       std::vector<uint8_t> buffer(total_size);
@@ -149,6 +153,18 @@ void async_udp_sender::sender_thread() {
       // Copy IQ samples
       if (!packet.iq_samples.empty()) {
         std::memcpy(ptr, packet.iq_samples.data(), packet.iq_samples.size() * sizeof(float));
+        ptr += packet.iq_samples.size() * sizeof(float);
+      }
+
+      // Copy SRS symbol list
+      if (!packet.srs_symbols.empty()) {
+        std::memcpy(ptr, packet.srs_symbols.data(), symbols_size);
+        ptr += symbols_size;
+      }
+
+      // Copy SRS subcarrier list
+      if (!packet.srs_subcarriers.empty()) {
+        std::memcpy(ptr, packet.srs_subcarriers.data(), subcarriers_size);
       }
       
       ssize_t sent = sendto(sockfd_, buffer.data(), total_size, 0,
@@ -306,7 +322,11 @@ time_alignment_measurement time_alignment_estimator_dft_impl::estimate_with_logf
                                                                        srsran::subcarrier_spacing    scs,
                                                                        double                        max_ta,
                                                                       std::string                   filename,
-                                                                      uint16_t                      rnti)
+                                                                      uint16_t                      rnti,
+                                                                      uint16_t                      subframe_index,
+                                                                      uint16_t                      slot_index,
+                                                                      span<const uint16_t>          srs_symbols,
+                                                                      span<const uint16_t>          srs_subcarriers)
 { //ujjwal : this esitmate function is called for srs/pucch dmrs 
   // Extract timestamp from filename parameter (which contains just the timestamp)
   uint64_t timestamp_ns = 0;
@@ -487,6 +507,12 @@ time_alignment_measurement time_alignment_estimator_dft_impl::estimate_with_logf
       packet.header.ta_flags = ta_is_rar ? 1 : 0;
       packet.header.ta_value = ta_value;
       packet.header.ta_update_time = ta_update_time_ns;
+      packet.header.subframe_index = subframe_index;
+      packet.header.slot_index = slot_index;
+      packet.header.nof_symbols = static_cast<uint16_t>(srs_symbols.size());
+      packet.header.nof_subcarriers = static_cast<uint16_t>(srs_subcarriers.size());
+      packet.srs_symbols.assign(srs_symbols.begin(), srs_symbols.end());
+      packet.srs_subcarriers.assign(srs_subcarriers.begin(), srs_subcarriers.end());
       
       // Copy ALL correlation values (no truncation)
       packet.header.nof_correlation = correlation.size();

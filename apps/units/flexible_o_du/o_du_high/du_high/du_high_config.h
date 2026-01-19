@@ -400,7 +400,7 @@ struct du_high_unit_srs_config {
   /// \brief Defines the maximum number of symbols dedicated to (all) the cell SRS resources in a slot.
   /// This is the space that the GNB reserves for all the cell SRS resources in the UL slots, not to be confused with
   /// the symbols per SRS resource configured in the UE dedicated configuration. Values: {1,...,6}.
-  unsigned max_nof_symbols_per_slot = 2;
+  unsigned max_nof_symbols_per_slot = 1;
   /// Defines the number of symbols per SRS resource as per \c nrofSymbols, \c resourceMapping, \c SRS-Resource \c
   /// SRS-Config, TS 38.331. Values: {1, 2, 4}.
   unsigned nof_symbols = 1;

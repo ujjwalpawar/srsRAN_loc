@@ -66,6 +66,26 @@ void srsran::announce_du_high_cells(const du_high_unit_config& du_high_unit_cfg)
                srsran::band_helper::nr_arfcn_to_freq(cell.dl_carrier.arfcn_f_ref) / 1e6,
                cell.dl_cfg_common.freq_info_dl.absolute_frequency_ssb,
                srsran::band_helper::nr_arfcn_to_freq(cell.ul_carrier.arfcn_f_ref) / 1e6);
+    if (cell.srs_cfg.srs_period.has_value()) {
+      fmt::print(
+          "SRS cfg: periodic {} slots, max_sym_per_slot={}, nof_sym_per_res={}, tx_comb={}, cyclic_shift_reuse={}, "
+          "sequence_id_reuse={}\n",
+          static_cast<unsigned>(cell.srs_cfg.srs_period.value()),
+          cell.srs_cfg.max_nof_symbols.to_uint(),
+          static_cast<unsigned>(cell.srs_cfg.nof_symbols),
+          static_cast<unsigned>(cell.srs_cfg.tx_comb),
+          static_cast<unsigned>(cell.srs_cfg.cyclic_shift_reuse_factor),
+          cell.srs_cfg.sequence_id_reuse_factor);
+    } else {
+      fmt::print(
+          "SRS cfg: aperiodic, max_sym_per_slot={}, nof_sym_per_res={}, tx_comb={}, cyclic_shift_reuse={}, "
+          "sequence_id_reuse={}\n",
+          cell.srs_cfg.max_nof_symbols.to_uint(),
+          static_cast<unsigned>(cell.srs_cfg.nof_symbols),
+          static_cast<unsigned>(cell.srs_cfg.tx_comb),
+          static_cast<unsigned>(cell.srs_cfg.cyclic_shift_reuse_factor),
+          cell.srs_cfg.sequence_id_reuse_factor);
+    }
 
     logger.info(
         "SSB derived parameters for cell: {}, band: {}, dl_arfcn:{}, nof_crbs: {} scs:{}, ssb_scs:{}:\n\t - SSB offset "

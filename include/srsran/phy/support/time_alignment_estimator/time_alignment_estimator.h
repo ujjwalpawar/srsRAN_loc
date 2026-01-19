@@ -24,6 +24,7 @@
 
 #include "srsran/adt/bounded_bitset.h"
 #include "srsran/adt/complex.h"
+#include "srsran/adt/span.h"
 #include "srsran/phy/support/re_buffer.h"
 #include "srsran/phy/support/time_alignment_estimator/time_alignment_measurement.h"
 #include "srsran/ran/resource_block.h"
@@ -96,10 +97,23 @@ public:
   /// \param[in] max_ta  Maximum absolute time alignment measurement if it is not zero.
   /// \param[in] filename  Filename to save the symbols
   /// \param[in] rnti    C-RNTI of the UE being estimated
+  /// \param[in] subframe_index  Subframe index within the radio frame (0..9)
+  /// \param[in] slot_index  Slot index within the radio frame
+  /// \param[in] srs_symbols  OFDM symbol indices carrying SRS (per UE)
+  /// \param[in] srs_subcarriers  Subcarrier indices carrying SRS (per UE)
   /// \return The measured time alignment.
   /// \remark An assertion is triggered if the number of symbols times the stride exceed the frequency domain buffer.
   virtual time_alignment_measurement
-  estimate_with_logfile(const re_buffer_reader<cf_t>& symbols, unsigned stride, subcarrier_spacing scs, double max_ta = 0.0, std::string filename=" ", uint16_t rnti = 0) = 0;
+  estimate_with_logfile(const re_buffer_reader<cf_t>& symbols,
+                        unsigned                      stride,
+                        subcarrier_spacing            scs,
+                        double                        max_ta         = 0.0,
+                        std::string                   filename       = " ",
+                        uint16_t                      rnti           = 0,
+                        uint16_t                      subframe_index = 0,
+                        uint16_t                      slot_index     = 0,
+                        span<const uint16_t>          srs_symbols    = span<const uint16_t>{},
+                        span<const uint16_t>          srs_subcarriers = span<const uint16_t>{}) = 0;
 };
 
 } // namespace srsran

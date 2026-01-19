@@ -25,6 +25,7 @@
 #include "srs_resource_generator.h"
 #include "srsran/du/du_cell_config.h"
 #include "srsran/ran/srs/srs_bandwidth_configuration.h"
+#include <array>
 
 namespace srsran {
 namespace srs_du {
@@ -82,6 +83,9 @@ private:
 
     using pair_res_id_offset = std::pair<unsigned, unsigned>;
 
+    // Returns the best SRS resource ID and offset for pairing UEs on the same slot with different comb offsets.
+    std::vector<pair_res_id_offset>::const_iterator find_paired_ue_srs_resource();
+
     // Returns the best SRS resource ID and offset for this UE, according to the policy defined in this class.
     std::vector<pair_res_id_offset>::const_iterator find_optimal_ue_srs_resource();
 
@@ -119,6 +123,8 @@ private:
     unsigned                        nof_res_per_symb_interval = 0;
     // Counter of how many SRS resources that are allocated per slot (offset).
     std::vector<unsigned> slot_resource_cnt;
+    // Counter of how many SRS resources are allocated per slot (offset) and comb offset.
+    std::vector<std::array<unsigned, 4>> slot_comb_offset_cnt;
   };
 
   // Contains the resources for the different cells of the DU.

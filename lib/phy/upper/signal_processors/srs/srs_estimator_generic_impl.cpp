@@ -100,6 +100,21 @@ srs_estimator_result srs_estimator_generic_impl::estimate(const resource_grid_re
   // Sequence length is common for all ports and symbols.
   unsigned sequence_length = common_info.sequence_length;
 
+  // Build SRS symbol and subcarrier lists for UDP metadata.
+  std::vector<uint16_t> srs_symbol_list;
+  srs_symbol_list.reserve(nof_symbols);
+  unsigned start_symbol = config.resource.start_symbol.value();
+  for (unsigned i = 0; i < nof_symbols; ++i) {
+    srs_symbol_list.push_back(static_cast<uint16_t>(start_symbol + i));
+  }
+
+  std::vector<uint16_t> srs_subcarrier_list;
+  srs_subcarrier_list.reserve(sequence_length);
+  for (unsigned i = 0; i < sequence_length; ++i) {
+    srs_subcarrier_list.push_back(
+        static_cast<uint16_t>(common_info.mapping_initial_subcarrier + i * common_info.comb_size));
+  }
+
   // Maximum measurable delay due to cyclic shift.
   double max_ta = 1.0 / static_cast<double>(common_info.n_cs_max * scs_to_khz(scs) * 1000 * comb_size);
 
@@ -236,7 +251,16 @@ srs_estimator_result srs_estimator_generic_impl::estimate(const resource_grid_re
 
   
     // Estimate TA.
-    time_alignment_measurement ta_meas = deps.ta_estimator->estimate_with_logfile(port_lse, info.comb_size, scs, max_ta, std::to_string(ts), config.rnti);
+    time_alignment_measurement ta_meas = deps.ta_estimator->estimate_with_logfile(port_lse,
+                                                                                  info.comb_size,
+                                                                                  scs,
+                                                                                  max_ta,
+                                                                                  std::to_string(ts),
+                                                                                  config.rnti,
+                                                                                  static_cast<uint16_t>(config.slot.subframe_index()),
+                                                                                  static_cast<uint16_t>(config.slot.slot_index()),
+                                                                                  srs_symbol_list,
+                                                                                  srs_subcarrier_list);
     
     // double ta_sched_time_s = deps.ta_source->get_cumulative_ta_time(config.ue_id); // implement this
 

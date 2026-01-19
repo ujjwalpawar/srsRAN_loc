@@ -22,8 +22,8 @@ SAVE_IQ = args.save_iq
 SAVE_PER_PORT = True
 OUTDIR = args.outdir
 
-# Header structure (52 bytes)
-HEADER_FORMAT = '<Q16sHHIQIII'  # timestamp, imeisv[16], c_rnti, ta_flags, ta_value, ta_update_time, nof_correlation, nof_iq_samples, nof_slices
+# Header structure (60 bytes)
+HEADER_FORMAT = '<Q16sHHIQHHHHIII'  # timestamp, imeisv[16], c_rnti, ta_flags, ta_value, ta_update_time, subframe_index, slot_index, nof_symbols, nof_subcarriers, nof_correlation, nof_iq_samples, nof_slices
 HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
 TA_FLAG_RAR = 0x1
 
@@ -55,7 +55,19 @@ try:
         
         # Parse header
         header_data = data[:HEADER_SIZE]
-        timestamp, imeisv_bytes, c_rnti, ta_flags, ta_value, ta_update_time, nof_correlation, nof_iq_samples, nof_slices = struct.unpack(HEADER_FORMAT, header_data)
+        (timestamp,
+         imeisv_bytes,
+         c_rnti,
+         ta_flags,
+         ta_value,
+         ta_update_time,
+         subframe_index,
+         slot_index,
+         nof_symbols,
+         nof_subcarriers,
+         nof_correlation,
+         nof_iq_samples,
+         nof_slices) = struct.unpack(HEADER_FORMAT, header_data)
         
         # Decode IMEISV
         imeisv = imeisv_bytes.decode('utf-8').rstrip('\x00')
@@ -63,7 +75,9 @@ try:
         # Calculate expected data size
         correlation_size = nof_correlation * 4  # floats
         iq_samples_size = nof_iq_samples * 2 * 4  # complex floats (I/Q pairs)
-        expected_size = HEADER_SIZE + correlation_size + iq_samples_size
+        symbols_size = nof_symbols * 2  # uint16 entries
+        subcarriers_size = nof_subcarriers * 2  # uint16 entries
+        expected_size = HEADER_SIZE + correlation_size + iq_samples_size + symbols_size + subcarriers_size
         
         if len(data) != expected_size:
             print(f"⚠ Size mismatch: received {len(data)}, expected {expected_size}")
@@ -77,6 +91,22 @@ try:
         # Parse IQ samples (interleaved I/Q)
         iq_offset = corr_offset + correlation_size
         iq_raw = struct.unpack(f'<{nof_iq_samples * 2}f', data[iq_offset:iq_offset + iq_samples_size])
+
+        # Parse SRS symbol list
+        symbols_offset = iq_offset + iq_samples_size
+        if symbols_size > 0:
+            srs_symbols = struct.unpack(f'<{nof_symbols}H', data[symbols_offset:symbols_offset + symbols_size])
+        else:
+            srs_symbols = ()
+
+        # Parse SRS subcarrier list
+        subcarriers_offset = symbols_offset + symbols_size
+        if subcarriers_size > 0:
+            srs_subcarriers = struct.unpack(
+                f'<{nof_subcarriers}H',
+                data[subcarriers_offset:subcarriers_offset + subcarriers_size])
+        else:
+            srs_subcarriers = ()
         
         # Separate I and Q
         i_samples = np.array(iq_raw[::2])
@@ -93,11 +123,24 @@ try:
         print(f"TA Value: {ta_value}")
         print(f"TA Update Time: {ta_update_time}")
         print(f"TA Flags: 0x{ta_flags:04x} (RAR={'yes' if (ta_flags & TA_FLAG_RAR) else 'no'})")
+        print(f"Subframe index: {subframe_index}")
+        print(f"Slot index: {slot_index}")
+        print(f"SRS symbols: {nof_symbols}")
+        print(f"SRS subcarriers: {nof_subcarriers}")
         print(f"Correlation samples: {nof_correlation}")
         print(f"Total IQ samples: {nof_iq_samples}")
         print(f"Number of antenna slices: {nof_slices}")
         print(f"Packet size: {len(data)} bytes")
         print()
+
+        if nof_symbols > 0:
+            symbols_list = ", ".join(str(v) for v in srs_symbols)
+            print(f"SRS symbol list: [{symbols_list}]")
+        if nof_subcarriers > 0:
+            subcarriers_list = ", ".join(str(v) for v in srs_subcarriers)
+            print(f"SRS subcarrier list: [{subcarriers_list[:10]}]")
+        if nof_symbols > 0 or nof_subcarriers > 0:
+            print()
         
         # Rearrange by antenna port
         if nof_slices > 0 and nof_iq_samples > 0:
@@ -142,6 +185,10 @@ try:
                         ta_value=np.array([ta_value], dtype=np.int32),
                         ta_update_time=np.array([ta_update_time], dtype=np.uint64),
                         ta_flags=np.array([ta_flags], dtype=np.uint16),
+                        subframe_index=np.array([subframe_index], dtype=np.uint16),
+                        slot_index=np.array([slot_index], dtype=np.uint16),
+                        srs_symbols=np.array(srs_symbols, dtype=np.uint16),
+                        srs_subcarriers=np.array(srs_subcarriers, dtype=np.uint16),
                         nof_slices=np.array([nof_slices], dtype=np.uint32),
                     )
 

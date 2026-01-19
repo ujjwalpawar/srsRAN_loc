@@ -98,14 +98,32 @@ public:
 
   // See interface for documentation.
   time_alignment_measurement
-  estimate_with_logfile(const re_buffer_reader<cf_t>&   symbols, unsigned stride, subcarrier_spacing scs, double max_ta, std::string filename, uint16_t rnti) override
+  estimate_with_logfile(const re_buffer_reader<cf_t>&   symbols,
+                        unsigned                        stride,
+                        subcarrier_spacing              scs,
+                        double                          max_ta,
+                        std::string                     filename,
+                        uint16_t                        rnti,
+                        uint16_t                        subframe_index,
+                        uint16_t                        slot_index,
+                        span<const uint16_t>            srs_symbols,
+                        span<const uint16_t>            srs_subcarriers) override
   {
     time_alignment_estimator_metrics metrics;
     time_alignment_measurement       ret;
     {
       // Use scoped resource usage class to measure CPU usage of this block.
       resource_usage_utils::scoped_resource_usage rusage_tracker(metrics.measurements);
-      ret = base->estimate_with_logfile(symbols, stride, scs, max_ta, filename, rnti);
+      ret = base->estimate_with_logfile(symbols,
+                                        stride,
+                                        scs,
+                                        max_ta,
+                                        filename,
+                                        rnti,
+                                        subframe_index,
+                                        slot_index,
+                                        srs_symbols,
+                                        srs_subcarriers);
     }
     metrics.nof_re = static_cast<unsigned>(symbols.get_nof_re());
     notifier.on_new_metric(metrics);

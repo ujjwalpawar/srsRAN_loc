@@ -23,6 +23,8 @@
 #include "du_srs_resource_manager.h"
 #include "du_ue_resource_config.h"
 #include "srsran/ran/srs/srs_bandwidth_configuration.h"
+#include "srsran/ran/subcarrier_spacing.h"
+#include <algorithm>
 #include <iostream>
 
 using namespace srsran;
@@ -158,6 +160,8 @@ du_srs_policy_max_ul_rate::du_srs_policy_max_ul_rate(span<const du_cell_config> 
     // Reserve the size of the vector and set the SRS counter of each offset to 0.
     cell.slot_resource_cnt.reserve(srs_period_slots);
     cell.slot_resource_cnt.assign(srs_period_slots, 0U);
+    cell.slot_comb_offset_cnt.reserve(srs_period_slots);
+    cell.slot_comb_offset_cnt.assign(srs_period_slots, {0U, 0U, 0U, 0U});
     cell.srs_res_offset_free_list.reserve(du_srs_policy_max_ul_rate::cell_context::max_nof_srs_res);
     cell.nof_res_per_symb_interval = static_cast<unsigned>(cell.cell_cfg.srs_cfg.tx_comb) *
                                      static_cast<unsigned>(cell.cell_cfg.srs_cfg.cyclic_shift_reuse_factor) *
@@ -237,7 +241,7 @@ bool du_srs_policy_max_ul_rate::alloc_resources(cell_group_config& cell_grp_cfg)
   }
 
   // Find the best resource ID and offset for this UE, according to the class policy.
-  auto srs_res_id_offset = cells[primary_cell_index].find_optimal_ue_srs_resource();
+  auto srs_res_id_offset = cells[primary_cell_index].find_paired_ue_srs_resource();
 
   if (srs_res_id_offset == free_srs_list.end()) {
     // If the allocation failed, reset the SRS configuration.
@@ -294,10 +298,118 @@ bool du_srs_policy_max_ul_rate::alloc_resources(cell_group_config& cell_grp_cfg)
   // Remove the allocated SRS resource from the free list.
   free_srs_list.erase(srs_res_id_offset);
 
-  // Update the SRS resource per slot counter.
+  // Update the SRS resource per slot counters.
   ++cells[primary_cell_index].slot_resource_cnt[srs_offset];
+  const unsigned comb_offset = du_res.tx_comb_offset.to_uint();
+  if (comb_offset < cells[primary_cell_index].slot_comb_offset_cnt[srs_offset].size()) {
+    ++cells[primary_cell_index].slot_comb_offset_cnt[srs_offset][comb_offset];
+  }
 
   return true;
+}
+
+std::vector<du_srs_policy_max_ul_rate::cell_context::pair_res_id_offset>::const_iterator
+du_srs_policy_max_ul_rate::cell_context::find_paired_ue_srs_resource()
+{
+  static constexpr unsigned max_ues_per_offset = 2U;
+
+  if (srs_res_offset_free_list.empty() || slot_resource_cnt.empty()) {
+    return srs_res_offset_free_list.end();
+  }
+
+  const unsigned tx_comb_size = static_cast<unsigned>(cell_cfg.srs_cfg.tx_comb);
+  std::array<unsigned, 2> fixed_offsets{};
+  size_t                  fixed_offsets_size = 0;
+  if (cell_cfg.srs_cfg.srs_period.has_value()) {
+    const unsigned slots_per_subframe = get_nof_slots_per_subframe(cell_cfg.scs_common);
+    const unsigned expected_period_slots = slots_per_subframe * 320U;
+    if (static_cast<unsigned>(cell_cfg.srs_cfg.srs_period.value()) == expected_period_slots) {
+      fixed_offsets = {17U, 7U};
+      fixed_offsets_size = fixed_offsets.size();
+    }
+  }
+
+  auto pick_free_comb = [this, tx_comb_size](unsigned offset) -> int {
+    for (unsigned comb = 0; comb < tx_comb_size; ++comb) {
+      if (slot_comb_offset_cnt[offset][comb] == 0U) {
+        return static_cast<int>(comb);
+      }
+    }
+    return -1;
+  };
+
+  auto find_resource_with_offset_and_comb = [this](unsigned offset,
+                                                   unsigned comb) -> std::vector<pair_res_id_offset>::const_iterator {
+    return std::find_if(srs_res_offset_free_list.begin(),
+                        srs_res_offset_free_list.end(),
+                        [this, offset, comb](const pair_res_id_offset& res) {
+                          if (res.second != offset) {
+                            return false;
+                          }
+                          auto srs_res_it = get_du_srs_res_cfg(res.first);
+                          if (srs_res_it == cell_srs_res_list.end()) {
+                            return false;
+                          }
+                          return srs_res_it->tx_comb_offset.to_uint() == comb;
+                        });
+  };
+
+  auto for_each_offset = [&](const auto& fn) {
+    if (fixed_offsets_size > 0) {
+      for (size_t i = 0; i != fixed_offsets_size; ++i) {
+        const unsigned offset = fixed_offsets[i];
+        if (offset < slot_resource_cnt.size()) {
+          fn(offset);
+        }
+      }
+    } else {
+      for (unsigned offset = 0; offset != slot_resource_cnt.size(); ++offset) {
+        fn(offset);
+      }
+    }
+  };
+
+  // First, complete existing pairs so that even UE counts share the same slot.
+  std::vector<pair_res_id_offset>::const_iterator candidate = srs_res_offset_free_list.end();
+  for_each_offset([&](unsigned offset) {
+    if (candidate != srs_res_offset_free_list.end()) {
+      return;
+    }
+    if (slot_resource_cnt[offset] != 1U) {
+      return;
+    }
+    if (slot_resource_cnt[offset] >= max_ues_per_offset) {
+      return;
+    }
+    const int comb = pick_free_comb(offset);
+    if (comb < 0) {
+      return;
+    }
+    candidate = find_resource_with_offset_and_comb(offset, static_cast<unsigned>(comb));
+  });
+  if (candidate != srs_res_offset_free_list.end()) {
+    return candidate;
+  }
+
+  // Otherwise, start a new pair on a free offset.
+  for_each_offset([&](unsigned offset) {
+    if (candidate != srs_res_offset_free_list.end()) {
+      return;
+    }
+    if (slot_resource_cnt[offset] != 0U) {
+      return;
+    }
+    const int comb = pick_free_comb(offset);
+    if (comb < 0) {
+      return;
+    }
+    candidate = find_resource_with_offset_and_comb(offset, static_cast<unsigned>(comb));
+  });
+  if (candidate != srs_res_offset_free_list.end()) {
+    return candidate;
+  }
+
+  return srs_res_offset_free_list.end();
 }
 
 std::vector<du_srs_policy_max_ul_rate::cell_context::pair_res_id_offset>::const_iterator
@@ -369,6 +481,12 @@ void du_srs_policy_max_ul_rate::dealloc_resources(cell_group_config& cell_grp_cf
     srsran_assert(cells[primary_cell_index].slot_resource_cnt[offset_to_deallocate] != 0,
                   "The offset is expected to be non-zero");
     --cells[primary_cell_index].slot_resource_cnt[offset_to_deallocate];
+    const unsigned comb_offset = srs_res.tx_comb.tx_comb_offset;
+    if (comb_offset < cells[primary_cell_index].slot_comb_offset_cnt[offset_to_deallocate].size()) {
+      srsran_assert(cells[primary_cell_index].slot_comb_offset_cnt[offset_to_deallocate][comb_offset] > 0,
+                    "SRS comb offset counter underflow");
+      --cells[primary_cell_index].slot_comb_offset_cnt[offset_to_deallocate][comb_offset];
+    }
   }
 
   // Reset the SRS configuration in this UE. This makes sure the DU will exit this function immediately when it gets

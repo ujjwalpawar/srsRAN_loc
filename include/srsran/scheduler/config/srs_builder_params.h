@@ -45,7 +45,7 @@ struct srs_builder_params {
   /// the PUCCH resources do not overlap in symbols with the SRS resources.
   /// \remark The SRS resources are always placed at the end of the slot.
   /// \remark As per TS 38.211, Section 6.4.1.4.1, SRS resource can only be placed in the last 6 symbols of a slot.
-  bounded_integer<unsigned, 1, 6> max_nof_symbols = 2U;
+  bounded_integer<unsigned, 1, 6> max_nof_symbols = 1U;
   /// \c Transmission comb number, as per TS 38.211, Section 6.4.1.4.2, or TS 38.331, "SRS-Resource".
   tx_comb_size tx_comb = tx_comb_size::n2;
   /// Defines the number of symbols per SRS resource.

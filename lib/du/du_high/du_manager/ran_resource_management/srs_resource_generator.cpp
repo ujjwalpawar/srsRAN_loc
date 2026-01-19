@@ -56,42 +56,29 @@ std::vector<du_srs_resource> srsran::srs_du::generate_cell_srs_list(const du_cel
     seq_id_values.push_back((static_cast<unsigned>(du_cell_cfg.pci) + seq_id) % nof_sequence_ids);
   }
 
-  // At this point, the SRS resource is not assigned to a given slot, and we need to consider all possible UL symbols
-  // where the SRS can be placed. The viable symbols for SRS are defined by the user configuration, through \c
-  // max_nof_symbols for fully-UL slots, or by the number of UL symbols for partially-UL slots. We take the min of
-  // these 2 values as starting symbol, and we cap it to the 6th last symbol, which is sey by the standard, as per
-  // TS 38.211, Section 6.4.1.4.1.
-  unsigned starting_sym = NOF_OFDM_SYM_PER_SLOT_NORMAL_CP - du_cell_cfg.srs_cfg.max_nof_symbols.to_uint();
-  if (du_cell_cfg.tdd_ul_dl_cfg_common.has_value()) {
-    const auto& tdd_cfg = du_cell_cfg.tdd_ul_dl_cfg_common.value();
-    starting_sym        = std::min(starting_sym, NOF_OFDM_SYM_PER_SLOT_NORMAL_CP - tdd_cfg.pattern1.nof_ul_symbols);
-    if (tdd_cfg.pattern2.has_value()) {
-      starting_sym = std::min(starting_sym, NOF_OFDM_SYM_PER_SLOT_NORMAL_CP - tdd_cfg.pattern2.value().nof_ul_symbols);
-    }
-  }
-  // Cap the starting symbol to the 6th last symbol of the slot (\c du_cell_cfg.srs_cfg.max_nof_symbols.max()), as per
-  // TS 38.211, Section 6.4.1.4.1.
-  starting_sym = std::max(starting_sym, NOF_OFDM_SYM_PER_SLOT_NORMAL_CP - du_cell_cfg.srs_cfg.max_nof_symbols.max());
+  // Force SRS resources to use a fixed symbol start.
+  static constexpr unsigned fixed_srs_symbol_start = 12U;
+  const unsigned           nof_srs_symbols         = static_cast<unsigned>(du_cell_cfg.srs_cfg.nof_symbols);
+  srsran_assert(fixed_srs_symbol_start + nof_srs_symbols <= NOF_OFDM_SYM_PER_SLOT_NORMAL_CP,
+                "Fixed SRS symbol start {} with nof_symbols {} exceeds slot size",
+                fixed_srs_symbol_start,
+                nof_srs_symbols);
+
+  const ofdm_symbol_range srs_res_symbols{fixed_srs_symbol_start, fixed_srs_symbol_start + nof_srs_symbols};
 
   // We use the counter to define the cell resource ID.
   unsigned srs_res_cnt = 0;
-  for (unsigned sym_start = NOF_OFDM_SYM_PER_SLOT_NORMAL_CP - static_cast<unsigned>(du_cell_cfg.srs_cfg.nof_symbols);
-       sym_start >= starting_sym;
-       sym_start -= static_cast<unsigned>(du_cell_cfg.srs_cfg.nof_symbols)) {
-    const ofdm_symbol_range srs_res_symbols{sym_start,
-                                            sym_start + static_cast<unsigned>(du_cell_cfg.srs_cfg.nof_symbols)};
-    for (auto tx_comb_offset : tx_comb_offsets) {
-      for (auto cs : cs_values) {
-        for (auto seq_id : seq_id_values) {
-          du_srs_resource srs_res;
-          srs_res.cell_res_id    = srs_res_cnt;
-          srs_res.tx_comb_offset = tx_comb_offset;
-          srs_res.symbols        = srs_res_symbols;
-          srs_res.sequence_id    = seq_id;
-          srs_res.cs             = cs;
-          srs_res_list.push_back(srs_res);
-          ++srs_res_cnt;
-        }
+  for (auto tx_comb_offset : tx_comb_offsets) {
+    for (auto cs : cs_values) {
+      for (auto seq_id : seq_id_values) {
+        du_srs_resource srs_res;
+        srs_res.cell_res_id    = srs_res_cnt;
+        srs_res.tx_comb_offset = tx_comb_offset;
+        srs_res.symbols        = srs_res_symbols;
+        srs_res.sequence_id    = seq_id;
+        srs_res.cs             = cs;
+        srs_res_list.push_back(srs_res);
+        ++srs_res_cnt;
       }
     }
   }
