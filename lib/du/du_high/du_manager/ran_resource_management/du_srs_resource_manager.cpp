@@ -324,7 +324,7 @@ du_srs_policy_max_ul_rate::cell_context::find_paired_ue_srs_resource()
     const unsigned slots_per_subframe = get_nof_slots_per_subframe(cell_cfg.scs_common);
     const unsigned expected_period_slots = slots_per_subframe * 320U;
     if (static_cast<unsigned>(cell_cfg.srs_cfg.srs_period.value()) == expected_period_slots) {
-      fixed_offsets = {17U, 7U};
+      fixed_offsets = {7U, 17U};
       fixed_offsets_size = fixed_offsets.size();
     }
   }
