@@ -107,7 +107,12 @@ public:
                         uint16_t                        subframe_index,
                         uint16_t                        slot_index,
                         span<const uint16_t>            srs_symbols,
-                        span<const uint16_t>            srs_subcarriers) override
+                        span<const uint16_t>            srs_subcarriers,
+                        span<const cf_t>                srs_sequence,
+                        uint16_t                        raw_symbol_index,
+                        uint16_t                        raw_nof_ports,
+                        uint32_t                        raw_nof_subcarriers,
+                        span<const cf_t>                raw_symbol_iq) override
   {
     time_alignment_estimator_metrics metrics;
     time_alignment_measurement       ret;
@@ -123,7 +128,12 @@ public:
                                         subframe_index,
                                         slot_index,
                                         srs_symbols,
-                                        srs_subcarriers);
+                                        srs_subcarriers,
+                                        srs_sequence,
+                                        raw_symbol_index,
+                                        raw_nof_ports,
+                                        raw_nof_subcarriers,
+                                        raw_symbol_iq);
     }
     metrics.nof_re = static_cast<unsigned>(symbols.get_nof_re());
     notifier.on_new_metric(metrics);

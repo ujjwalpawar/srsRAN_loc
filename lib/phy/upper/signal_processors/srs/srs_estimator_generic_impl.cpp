@@ -115,6 +115,39 @@ srs_estimator_result srs_estimator_generic_impl::estimate(const resource_grid_re
         static_cast<uint16_t>(common_info.mapping_initial_subcarrier + i * common_info.comb_size));
   }
 
+  // Capture raw, unprocessed IQ for the full symbol 12 when SRS is present.
+  uint16_t           raw_symbol_index     = 0xFFFF;
+  uint16_t           raw_nof_ports        = 0;
+  uint32_t           raw_nof_subcarriers  = 0;
+  std::vector<cf_t>  raw_symbol_iq;
+  const uint16_t     target_symbol = 12;
+  bool               target_symbol_present =
+      (target_symbol >= start_symbol) && (target_symbol < (start_symbol + nof_symbols));
+
+  if (target_symbol_present && (target_symbol < grid.get_nof_symbols())) {
+    raw_symbol_index    = target_symbol;
+    raw_nof_ports       = 1;
+    raw_nof_subcarriers = static_cast<uint32_t>(grid.get_nof_subc());
+    raw_symbol_iq.resize(static_cast<size_t>(raw_nof_subcarriers));
+
+    unsigned i_rx_port = config.ports[0];
+    span<cf_t> port_view(raw_symbol_iq.data(), raw_nof_subcarriers);
+    grid.get(port_view, i_rx_port, raw_symbol_index, 0, 1);
+
+    static uint64_t raw_print_count = 0;
+    if (++raw_print_count <= 5 || (raw_print_count % 1000 == 0)) {
+      std::cout << "[SRS_RAW] symbol=" << raw_symbol_index
+                << " port=" << static_cast<unsigned>(i_rx_port)
+                << " first10:";
+      unsigned max_print = std::min<unsigned>(10, raw_nof_subcarriers);
+      for (unsigned i = 0; i < max_print; ++i) {
+        const cf_t& v = raw_symbol_iq[i];
+        std::cout << " (" << i << ":" << v.real() << "," << v.imag() << ")";
+      }
+      std::cout << std::endl;
+    }
+  }
+
   // Maximum measurable delay due to cyclic shift.
   double max_ta = 1.0 / static_cast<double>(common_info.n_cs_max * scs_to_khz(scs) * 1000 * comb_size);
 
@@ -202,7 +235,11 @@ srs_estimator_result srs_estimator_generic_impl::estimate(const resource_grid_re
         static_vector<cf_t, max_seq_length> rx_sequence(info.sequence_length);
         grid.get(rx_sequence, i_rx_port, i_symbol, info.mapping_initial_subcarrier, info.comb_size);
         //ujjwal debug
-        // for (size_t i = 0; i < rx_sequence.size(); ++i) {
+        // if(i_rx_port_index == 0)
+        // std::cout<<"mapping_initial_subcarrier " << info.mapping_initial_subcarrier<<std::endl;
+        // for (size_t i = 0; i < 1; ++i) {
+          // if(i_rx_port_index == 0)
+          // std::cout<< rx_sequence[i].real() <<" ";
         //   unsigned k = info.mapping_initial_subcarrier + i * info.comb_size;
         //   dump_file << std::scientific << std::setprecision(15);
         //   dump_file << "Port " << i_rx_port_index
@@ -210,7 +247,8 @@ srs_estimator_result srs_estimator_generic_impl::estimate(const resource_grid_re
         //             << ", Subcarrier " << k
         //             << ": " << rx_sequence[i].real()
         //             << " + " << rx_sequence[i].imag() << "j\n";
-        // }
+        //  }
+        //  std::cout<<std::endl;
         //ujjwal debug ends
 
         // Since the same SRS sequence is sent over all symbols, it makes sense to average out the noise. When pilots
@@ -251,6 +289,13 @@ srs_estimator_result srs_estimator_generic_impl::estimate(const resource_grid_re
 
   
     // Estimate TA.
+    bool use_tx0 = (i_antenna_port == 0);
+    uint16_t tx_raw_symbol_index = use_tx0 ? raw_symbol_index : 0xFFFF;
+    uint16_t tx_raw_nof_ports = use_tx0 ? raw_nof_ports : 0;
+    uint32_t tx_raw_nof_subcarriers = use_tx0 ? raw_nof_subcarriers : 0;
+    span<const cf_t> tx_raw_symbol_iq = use_tx0 ? span<const cf_t>(raw_symbol_iq) : span<const cf_t>{};
+    span<const cf_t> tx_srs_sequence = use_tx0 ? span<const cf_t>(sequence) : span<const cf_t>{};
+
     time_alignment_measurement ta_meas = deps.ta_estimator->estimate_with_logfile(port_lse,
                                                                                   info.comb_size,
                                                                                   scs,
@@ -260,7 +305,12 @@ srs_estimator_result srs_estimator_generic_impl::estimate(const resource_grid_re
                                                                                   static_cast<uint16_t>(config.slot.subframe_index()),
                                                                                   static_cast<uint16_t>(config.slot.slot_index()),
                                                                                   srs_symbol_list,
-                                                                                  srs_subcarrier_list);
+                                                                                  srs_subcarrier_list,
+                                                                                  tx_srs_sequence,
+                                                                                  tx_raw_symbol_index,
+                                                                                  tx_raw_nof_ports,
+                                                                                  tx_raw_nof_subcarriers,
+                                                                                  tx_raw_symbol_iq);
     
     // double ta_sched_time_s = deps.ta_source->get_cumulative_ta_time(config.ue_id); // implement this
 

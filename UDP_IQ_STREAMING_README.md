@@ -11,6 +11,7 @@ The PHY layer now transmits IQ correlation samples and time-domain channel estim
 **Per TA estimation event (PUCCH/SRS):**
 - **Correlation vector**: Time-domain correlation power (magnitude squared)
 - **IQ samples**: Complex time-domain channel observations from all antenna slices
+- **Raw symbol IQ**: Full symbol IQ for symbol 12 across all subcarriers (single RX port to keep UDP payload under limits)
 - **Metadata**: IMEISV, C-RNTI, TA value, timestamp, subframe/slot index
 - **SRS allocation**: OFDM symbol indices and subcarrier indices (per UE)
 
@@ -28,6 +29,10 @@ struct iq_udp_packet_header {
   uint16_t slot_index;          // Slot index within the radio frame
   uint16_t nof_symbols;         // Number of OFDM symbols carrying SRS
   uint16_t nof_subcarriers;     // Number of subcarriers carrying SRS
+  uint16_t nof_srs_sequence;    // Number of SRS sequence samples (complex)
+  uint16_t raw_symbol_index;    // OFDM symbol index for raw full-symbol capture (0xFFFF if unused)
+  uint16_t raw_nof_ports;       // Number of RX ports included in raw symbol capture
+  uint32_t raw_nof_subcarriers; // Number of subcarriers per RX port in raw symbol capture
   uint32_t nof_correlation;     // Number of correlation samples
   uint32_t nof_iq_samples;      // Number of IQ samples (complex)
   uint32_t nof_slices;          // Number of antenna slices
@@ -39,8 +44,13 @@ struct iq_udp_packet {
   float iq_samples[2 * nof_iq_samples];      // Interleaved I/Q (complex samples)
   uint16_t srs_symbols[nof_symbols];         // OFDM symbol indices carrying SRS
   uint16_t srs_subcarriers[nof_subcarriers]; // Subcarrier indices carrying SRS
+  float raw_symbol_iq[2 * raw_nof_ports * raw_nof_subcarriers]; // Raw full-symbol IQ (I/Q interleaved)
+  float srs_sequence[2 * nof_srs_sequence];  // SRS sequence (I/Q interleaved)
 };
 ```
+
+Note: When raw symbol capture is enabled, the UDP payload includes only the first antenna slice in `iq_samples` to stay
+under UDP size limits. The `nof_slices` field reflects this.
 
 ## Configuration
 
@@ -164,8 +174,9 @@ Solutions:
 ### Wrong data received
 
 Verify struct alignment matches between C++ and Python:
-- Header size is 60 bytes (packed)
-- Total size = header + `4 * nof_correlation` + `4 * 2 * nof_iq_samples` + `2 * nof_symbols` + `2 * nof_subcarriers`
+- Header size is 70 bytes (packed)
+- Total size = header + `4 * nof_correlation` + `4 * 2 * nof_iq_samples` + `2 * nof_symbols` + `2 * nof_subcarriers` +
+  `4 * 2 * raw_nof_ports * raw_nof_subcarriers` + `4 * 2 * nof_srs_sequence`
 
 ## Advanced Usage
 

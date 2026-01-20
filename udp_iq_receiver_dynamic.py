@@ -22,8 +22,8 @@ SAVE_IQ = args.save_iq
 SAVE_PER_PORT = True
 OUTDIR = args.outdir
 
-# Header structure (60 bytes)
-HEADER_FORMAT = '<Q16sHHIQHHHHIII'  # timestamp, imeisv[16], c_rnti, ta_flags, ta_value, ta_update_time, subframe_index, slot_index, nof_symbols, nof_subcarriers, nof_correlation, nof_iq_samples, nof_slices
+# Header structure (70 bytes)
+HEADER_FORMAT = '<Q16sHHIQHHHHHHHIIII'  # timestamp, imeisv[16], c_rnti, ta_flags, ta_value, ta_update_time, subframe_index, slot_index, nof_symbols, nof_subcarriers, nof_srs_sequence, raw_symbol_index, raw_nof_ports, raw_nof_subcarriers, nof_correlation, nof_iq_samples, nof_slices
 HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
 TA_FLAG_RAR = 0x1
 
@@ -65,6 +65,10 @@ try:
          slot_index,
          nof_symbols,
          nof_subcarriers,
+         nof_srs_sequence,
+         raw_symbol_index,
+         raw_nof_ports,
+         raw_nof_subcarriers,
          nof_correlation,
          nof_iq_samples,
          nof_slices) = struct.unpack(HEADER_FORMAT, header_data)
@@ -77,7 +81,11 @@ try:
         iq_samples_size = nof_iq_samples * 2 * 4  # complex floats (I/Q pairs)
         symbols_size = nof_symbols * 2  # uint16 entries
         subcarriers_size = nof_subcarriers * 2  # uint16 entries
-        expected_size = HEADER_SIZE + correlation_size + iq_samples_size + symbols_size + subcarriers_size
+        raw_iq_samples = raw_nof_ports * raw_nof_subcarriers
+        raw_iq_size = raw_iq_samples * 2 * 4
+        srs_sequence_size = nof_srs_sequence * 2 * 4
+        expected_size = (HEADER_SIZE + correlation_size + iq_samples_size + symbols_size +
+                         subcarriers_size + raw_iq_size + srs_sequence_size)
         
         if len(data) != expected_size:
             print(f"⚠ Size mismatch: received {len(data)}, expected {expected_size}")
@@ -107,10 +115,32 @@ try:
                 data[subcarriers_offset:subcarriers_offset + subcarriers_size])
         else:
             srs_subcarriers = ()
+
+        # Parse raw full-symbol IQ
+        raw_offset = subcarriers_offset + subcarriers_size
+        if raw_iq_size > 0:
+            raw_iq_raw = struct.unpack(
+                f'<{raw_iq_samples * 2}f',
+                data[raw_offset:raw_offset + raw_iq_size])
+        else:
+            raw_iq_raw = ()
+
+        # Parse SRS sequence
+        srs_seq_offset = raw_offset + raw_iq_size
+        if srs_sequence_size > 0:
+            srs_sequence_raw = struct.unpack(
+                f'<{nof_srs_sequence * 2}f',
+                data[srs_seq_offset:srs_seq_offset + srs_sequence_size])
+        else:
+            srs_sequence_raw = ()
         
         # Separate I and Q
         i_samples = np.array(iq_raw[::2])
         q_samples = np.array(iq_raw[1::2])
+        raw_i_samples = np.array(raw_iq_raw[::2]) if raw_iq_raw else np.array([], dtype=np.float32)
+        raw_q_samples = np.array(raw_iq_raw[1::2]) if raw_iq_raw else np.array([], dtype=np.float32)
+        srs_seq_i = np.array(srs_sequence_raw[::2]) if srs_sequence_raw else np.array([], dtype=np.float32)
+        srs_seq_q = np.array(srs_sequence_raw[1::2]) if srs_sequence_raw else np.array([], dtype=np.float32)
         
         packet_count += 1
         
@@ -127,9 +157,15 @@ try:
         print(f"Slot index: {slot_index}")
         print(f"SRS symbols: {nof_symbols}")
         print(f"SRS subcarriers: {nof_subcarriers}")
+        print(f"SRS sequence samples: {nof_srs_sequence}")
         print(f"Correlation samples: {nof_correlation}")
         print(f"Total IQ samples: {nof_iq_samples}")
         print(f"Number of antenna slices: {nof_slices}")
+        if raw_symbol_index != 0xFFFF and raw_nof_ports > 0 and raw_nof_subcarriers > 0:
+            print(f"Raw symbol index: {raw_symbol_index}")
+            print(f"Raw symbol ports: {raw_nof_ports}")
+            print(f"Raw symbol subcarriers: {raw_nof_subcarriers}")
+            print(f"Raw symbol IQ samples: {raw_iq_samples}")
         print(f"Packet size: {len(data)} bytes")
         print()
 
@@ -140,6 +176,17 @@ try:
             subcarriers_list = ", ".join(str(v) for v in srs_subcarriers)
             print(f"SRS subcarrier list: [{subcarriers_list[:10]}]")
         if nof_symbols > 0 or nof_subcarriers > 0:
+            print()
+
+        if raw_iq_raw and raw_nof_subcarriers > 0:
+            print("Raw symbol port 0 first 3:", end=" ")
+            for i in range(min(3, raw_nof_subcarriers)):
+                print(f"({raw_i_samples[i]:.6f}, {raw_q_samples[i]:.6f})", end=" ")
+            print()
+        if srs_sequence_raw and nof_srs_sequence > 0:
+            print("SRS sequence first 3:", end=" ")
+            for i in range(min(3, nof_srs_sequence)):
+                print(f"({srs_seq_i[i]:.6f}, {srs_seq_q[i]:.6f})", end=" ")
             print()
         
         # Rearrange by antenna port
@@ -190,6 +237,10 @@ try:
                         srs_symbols=np.array(srs_symbols, dtype=np.uint16),
                         srs_subcarriers=np.array(srs_subcarriers, dtype=np.uint16),
                         nof_slices=np.array([nof_slices], dtype=np.uint32),
+                        raw_symbol_index=np.array([raw_symbol_index], dtype=np.uint16),
+                        raw_nof_ports=np.array([raw_nof_ports], dtype=np.uint16),
+                        raw_nof_subcarriers=np.array([raw_nof_subcarriers], dtype=np.uint32),
+                        nof_srs_sequence=np.array([nof_srs_sequence], dtype=np.uint16),
                     )
 
                     # Optionally save per-port 2D arrays
@@ -216,6 +267,26 @@ try:
                         save_kwargs['iq'] = iq_complex
                         save_kwargs['i'] = i_samples.astype(np.float32)
                         save_kwargs['q'] = q_samples.astype(np.float32)
+
+                    if raw_iq_raw:
+                        raw_iq_complex = (raw_i_samples.astype(np.float32) +
+                                          1j * raw_q_samples.astype(np.float32)).astype(np.complex64)
+                        if raw_nof_ports > 0 and raw_nof_subcarriers > 0:
+                            try:
+                                raw_iq_by_port = raw_iq_complex.reshape(raw_nof_ports, raw_nof_subcarriers)
+                                save_kwargs['raw_iq_by_port'] = raw_iq_by_port
+                            except Exception as e:
+                                print(f"Error reshaping raw IQ into per-port arrays: {e}")
+                        save_kwargs['raw_iq'] = raw_iq_complex
+                        save_kwargs['raw_i'] = raw_i_samples.astype(np.float32)
+                        save_kwargs['raw_q'] = raw_q_samples.astype(np.float32)
+
+                    if srs_sequence_raw:
+                        srs_sequence_complex = (srs_seq_i.astype(np.float32) +
+                                                1j * srs_seq_q.astype(np.float32)).astype(np.complex64)
+                        save_kwargs['srs_sequence'] = srs_sequence_complex
+                        save_kwargs['srs_sequence_i'] = srs_seq_i.astype(np.float32)
+                        save_kwargs['srs_sequence_q'] = srs_seq_q.astype(np.float32)
 
                     # Save everything to NPZ using a temporary file + atomic rename for safety
                     tmp_outname = outname + '.tmp.npz'

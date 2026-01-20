@@ -54,6 +54,10 @@ struct __attribute__((packed)) iq_udp_packet_header {
   uint16_t slot_index;               // Slot index within the radio frame
   uint16_t nof_symbols;              // Number of OFDM symbols carrying SRS
   uint16_t nof_subcarriers;          // Number of subcarriers carrying SRS
+  uint16_t nof_srs_sequence;         // Number of SRS sequence samples (complex)
+  uint16_t raw_symbol_index;         // OFDM symbol index for raw full-symbol capture (0xFFFF if unused)
+  uint16_t raw_nof_ports;            // Number of RX ports included in raw_symbol_iq_samples
+  uint32_t raw_nof_subcarriers;      // Number of subcarriers per RX port in raw_symbol_iq_samples
   uint32_t nof_correlation;
   uint32_t nof_iq_samples;
   uint32_t nof_slices;               // Number of antenna slices
@@ -66,6 +70,8 @@ struct iq_udp_packet {
   std::vector<float> iq_samples;     // Freq-domain symbols from ALL slices (flattened, I/Q interleaved)
   std::vector<uint16_t> srs_symbols;     // OFDM symbol indices carrying SRS
   std::vector<uint16_t> srs_subcarriers; // Subcarrier indices carrying SRS
+  std::vector<float> raw_symbol_iq_samples; // Raw full-symbol IQ (I/Q interleaved, per port)
+  std::vector<float> srs_sequence;   // SRS sequence (I/Q interleaved)
 };
 
 /// Asynchronous UDP sender using lock-free queue
@@ -154,7 +160,12 @@ public:
                         uint16_t                      subframe_index,
                         uint16_t                      slot_index,
                         span<const uint16_t>          srs_symbols,
-                        span<const uint16_t>          srs_subcarriers) override;
+                        span<const uint16_t>          srs_subcarriers,
+                        span<const cf_t>              srs_sequence,
+                        uint16_t                      raw_symbol_index,
+                        uint16_t                      raw_nof_ports,
+                        uint32_t                      raw_nof_subcarriers,
+                        span<const cf_t>              raw_symbol_iq) override;
 
 private:
   /// DFT processors.

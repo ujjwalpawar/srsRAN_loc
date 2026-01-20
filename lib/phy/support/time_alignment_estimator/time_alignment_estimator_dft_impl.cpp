@@ -127,14 +127,18 @@ void async_udp_sender::sender_thread() {
     
     // Send without blocking main thread
     if (sockfd_ >= 0) {
-      // Calculate total size: header + correlation data + IQ data + SRS lists
+      // Calculate total size: header + correlation data + IQ data + SRS lists + raw symbol IQ + SRS sequence
       size_t symbols_size = packet.srs_symbols.size() * sizeof(uint16_t);
       size_t subcarriers_size = packet.srs_subcarriers.size() * sizeof(uint16_t);
+      size_t raw_iq_size = packet.raw_symbol_iq_samples.size() * sizeof(float);
+      size_t srs_sequence_size = packet.srs_sequence.size() * sizeof(float);
       size_t total_size = sizeof(iq_udp_packet_header) +
                          packet.correlation.size() * sizeof(float) +
                          packet.iq_samples.size() * sizeof(float) +
                          symbols_size +
-                         subcarriers_size;
+                         subcarriers_size +
+                         raw_iq_size +
+                         srs_sequence_size;
       
       // Allocate buffer for complete packet
       std::vector<uint8_t> buffer(total_size);
@@ -165,6 +169,18 @@ void async_udp_sender::sender_thread() {
       // Copy SRS subcarrier list
       if (!packet.srs_subcarriers.empty()) {
         std::memcpy(ptr, packet.srs_subcarriers.data(), subcarriers_size);
+        ptr += subcarriers_size;
+      }
+
+      // Copy raw symbol IQ samples
+      if (!packet.raw_symbol_iq_samples.empty()) {
+        std::memcpy(ptr, packet.raw_symbol_iq_samples.data(), raw_iq_size);
+      }
+      ptr += raw_iq_size;
+
+      // Copy SRS sequence
+      if (!packet.srs_sequence.empty()) {
+        std::memcpy(ptr, packet.srs_sequence.data(), srs_sequence_size);
       }
       
       ssize_t sent = sendto(sockfd_, buffer.data(), total_size, 0,
@@ -326,7 +342,12 @@ time_alignment_measurement time_alignment_estimator_dft_impl::estimate_with_logf
                                                                       uint16_t                      subframe_index,
                                                                       uint16_t                      slot_index,
                                                                       span<const uint16_t>          srs_symbols,
-                                                                      span<const uint16_t>          srs_subcarriers)
+                                                                      span<const uint16_t>          srs_subcarriers,
+                                                                      span<const cf_t>              srs_sequence,
+                                                                      uint16_t                      raw_symbol_index,
+                                                                      uint16_t                      raw_nof_ports,
+                                                                      uint32_t                      raw_nof_subcarriers,
+                                                                      span<const cf_t>              raw_symbol_iq)
 { //ujjwal : this esitmate function is called for srs/pucch dmrs 
   // Extract timestamp from filename parameter (which contains just the timestamp)
   uint64_t timestamp_ns = 0;
@@ -446,9 +467,11 @@ time_alignment_measurement time_alignment_estimator_dft_impl::estimate_with_logf
     // }
     // file << std::endl;
     
-    // Store frequency domain symbols from all slices for UDP transmission
-    std::vector<cf_t> slice_symbols(symbols_in.begin(), symbols_in.end());
-    all_symbols_freq.push_back(slice_symbols);
+    // Store frequency domain symbols for UDP transmission (limit to one slice when raw symbol capture is enabled).
+    if ((raw_symbol_index == 0xFFFF) || (i_in == 0)) {
+      std::vector<cf_t> slice_symbols(symbols_in.begin(), symbols_in.end());
+      all_symbols_freq.push_back(slice_symbols);
+    }
     
     //ujjwal debug end
     // Write the symbols in their corresponding positions.
@@ -511,6 +534,10 @@ time_alignment_measurement time_alignment_estimator_dft_impl::estimate_with_logf
       packet.header.slot_index = slot_index;
       packet.header.nof_symbols = static_cast<uint16_t>(srs_symbols.size());
       packet.header.nof_subcarriers = static_cast<uint16_t>(srs_subcarriers.size());
+      packet.header.nof_srs_sequence = static_cast<uint16_t>(srs_sequence.size());
+      packet.header.raw_symbol_index = raw_symbol_index;
+      packet.header.raw_nof_ports = raw_nof_ports;
+      packet.header.raw_nof_subcarriers = raw_nof_subcarriers;
       packet.srs_symbols.assign(srs_symbols.begin(), srs_symbols.end());
       packet.srs_subcarriers.assign(srs_subcarriers.begin(), srs_subcarriers.end());
       
@@ -542,8 +569,50 @@ time_alignment_measurement time_alignment_estimator_dft_impl::estimate_with_logf
           sample_idx++;
         }
       }
+
+      if (!raw_symbol_iq.empty()) {
+        packet.raw_symbol_iq_samples.resize(raw_symbol_iq.size() * 2);
+        for (size_t i = 0; i < raw_symbol_iq.size(); ++i) {
+          packet.raw_symbol_iq_samples[2 * i] = raw_symbol_iq[i].real();
+          packet.raw_symbol_iq_samples[2 * i + 1] = raw_symbol_iq[i].imag();
+        }
+      }
+
+      if (!srs_sequence.empty()) {
+        packet.srs_sequence.resize(srs_sequence.size() * 2);
+        for (size_t i = 0; i < srs_sequence.size(); ++i) {
+          packet.srs_sequence[2 * i] = srs_sequence[i].real();
+          packet.srs_sequence[2 * i + 1] = srs_sequence[i].imag();
+        }
+      }
       
-      udp_sender_->send_async(packet);
+      bool queued = udp_sender_->send_async(packet);
+      if (queued) {
+        static std::atomic<uint64_t> sent_count{0};
+        uint64_t count = ++sent_count;
+        if (count <= 5 || (count % 1000 == 0)) {
+          std::cout << "[UDP_SENDER] Queued packet #" << count
+                    << " rnti=" << c_rnti_val
+                    << " sf=" << subframe_index
+                    << " slot=" << slot_index
+                    << " srs_syms=" << packet.header.nof_symbols
+                    << " srs_subc=" << packet.header.nof_subcarriers
+                    << " raw_sym=" << packet.header.raw_symbol_index
+                    << " raw_ports=" << packet.header.raw_nof_ports
+                    << " raw_subc=" << packet.header.raw_nof_subcarriers
+                    << std::endl;
+        }
+      } else {
+        static std::atomic<uint64_t> drop_log_count{0};
+        uint64_t count = ++drop_log_count;
+        if (count <= 5 || (count % 1000 == 0)) {
+          std::cout << "[UDP_SENDER] Drop packet"
+                    << " rnti=" << c_rnti_val
+                    << " sf=" << subframe_index
+                    << " slot=" << slot_index
+                    << std::endl;
+        }
+      }
     } catch (...) {
       /* ignore UDP errors */
     }

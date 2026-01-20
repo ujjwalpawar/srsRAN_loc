@@ -101,6 +101,11 @@ public:
   /// \param[in] slot_index  Slot index within the radio frame
   /// \param[in] srs_symbols  OFDM symbol indices carrying SRS (per UE)
   /// \param[in] srs_subcarriers  Subcarrier indices carrying SRS (per UE)
+  /// \param[in] srs_sequence  SRS sequence used for channel estimation (complex, per UE)
+  /// \param[in] raw_symbol_index  OFDM symbol index for raw full-symbol capture (0xFFFF if unused)
+  /// \param[in] raw_nof_ports  Number of RX ports included in raw_symbol_iq
+  /// \param[in] raw_nof_subcarriers  Number of subcarriers per RX port in raw_symbol_iq
+  /// \param[in] raw_symbol_iq  Raw received IQ samples for the full symbol (I/Q interleaved, per port)
   /// \return The measured time alignment.
   /// \remark An assertion is triggered if the number of symbols times the stride exceed the frequency domain buffer.
   virtual time_alignment_measurement
@@ -113,7 +118,12 @@ public:
                         uint16_t                      subframe_index = 0,
                         uint16_t                      slot_index     = 0,
                         span<const uint16_t>          srs_symbols    = span<const uint16_t>{},
-                        span<const uint16_t>          srs_subcarriers = span<const uint16_t>{}) = 0;
+                        span<const uint16_t>          srs_subcarriers = span<const uint16_t>{},
+                        span<const cf_t>              srs_sequence = span<const cf_t>{},
+                        uint16_t                      raw_symbol_index = 0xFFFF,
+                        uint16_t                      raw_nof_ports = 0,
+                        uint32_t                      raw_nof_subcarriers = 0,
+                        span<const cf_t>              raw_symbol_iq = span<const cf_t>{}) = 0;
 };
 
 } // namespace srsran

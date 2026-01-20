@@ -330,6 +330,15 @@ du_srs_policy_max_ul_rate::cell_context::find_paired_ue_srs_resource()
   }
 
   auto pick_free_comb = [this, tx_comb_size](unsigned offset) -> int {
+    if (tx_comb_size == 2U) {
+      constexpr std::array<unsigned, 2> preferred = {1U, 0U};
+      for (unsigned comb : preferred) {
+        if (slot_comb_offset_cnt[offset][comb] == 0U) {
+          return static_cast<int>(comb);
+        }
+      }
+      return -1;
+    }
     for (unsigned comb = 0; comb < tx_comb_size; ++comb) {
       if (slot_comb_offset_cnt[offset][comb] == 0U) {
         return static_cast<int>(comb);
