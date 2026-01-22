@@ -33,6 +33,7 @@
 #include "srsran/ran/srs/srs_configuration.h"
 #include "srsran/scheduler/result/vrb_alloc.h"
 #include "srsran/scheduler/ue_identity_tracker.h"
+#include "srsran/scheduler/slot_time_shared.h"
 #include "srsran/scheduler/ta_shared.h"
 #include "srsran/srslog/srslog.h"
 #include "srsran/support/math/math_utils.h"
@@ -752,8 +753,9 @@ error_type<std::string> dmrs_schedule_remote_command::execute(const nlohmann::js
       return make_unexpected(fmt::format("Unsupported rb_allocation.type '{}'", rb_alloc_type));
     }
 
+    slot_point scheduled_slot(scs, sfn, slot);
     dmrs_pusch_estimator::configuration cfg;
-    cfg.slot = slot_point(scs, sfn, slot);
+    cfg.slot = scheduled_slot;
     cfg.rnti = rnti;
     cfg.enable_udp = true;
     if (transform_precoding) {
@@ -779,13 +781,29 @@ error_type<std::string> dmrs_schedule_remote_command::execute(const nlohmann::js
 
     get_dmrs_measurement_queue().push(dmrs_measurement_request{.config = std::move(cfg)});
 
-    dmrs_logger.info("DMRS schedule received: cell={}/{} imeisv={} rnti={} sfn={} slot={}",
+    slot_point  current_slot;
+    std::string current_sfn_str = "na";
+    std::string current_slot_str = "na";
+    std::string slot_delta_str = "na";
+    if (get_last_slot(scs, current_slot)) {
+      current_sfn_str = std::to_string(current_slot.sfn());
+      current_slot_str = std::to_string(current_slot.slot_index());
+      slot_delta_str = std::to_string(scheduled_slot - current_slot);
+    }
+    const auto rx_time_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count();
+    dmrs_logger.info("DMRS schedule received: cell={}/{} imeisv={} rnti={} sfn={} slot={} curr_sfn={} curr_slot={} slot_delta={} rx_time_ns={}",
                      nr_cgi->plmn_id.to_string(),
                      nr_cgi->nci.value(),
                      imeisv,
                      fmt::format("{:#x}", to_value(rnti)),
                      sfn,
-                     slot);
+                     slot,
+                     current_sfn_str,
+                     current_slot_str,
+                     slot_delta_str,
+                     rx_time_ns);
   }
 
   return {};

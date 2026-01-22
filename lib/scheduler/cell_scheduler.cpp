@@ -25,6 +25,7 @@
 #include "logging/scheduler_metrics_handler.h"
 #include "srs/srs_schedule_file_exporter.h"
 #include "srs/srs_schedule_remote_exporter.h"
+#include "srsran/scheduler/slot_time_shared.h"
 #include "ue_scheduling/ue_scheduler_impl.h"
 #include <algorithm>
 #include <cctype>
@@ -120,6 +121,7 @@ void cell_scheduler::handle_crc_indication(const ul_crc_indication& crc_ind)
 
 void cell_scheduler::run_slot(slot_point sl_tx)
 {
+  update_last_slot(sl_tx);
   // Mark the start of the slot.
   auto slot_start_tp = std::chrono::high_resolution_clock::now();
   res_usage_tracer.start();
