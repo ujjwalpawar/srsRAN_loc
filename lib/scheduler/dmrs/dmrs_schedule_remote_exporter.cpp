@@ -359,15 +359,16 @@ void dmrs_schedule_remote_exporter::handle_slot(slot_point slot,
       rar_ta = *ta_opt;
     }
 
-    nlohmann::json payload = build_schedule_payload(slot, cell_id, pusch_cfg, imeisv, rar_ta);
+    const slot_point scheduled_slot = slot + grant.context.k2;
+    nlohmann::json payload = build_schedule_payload(scheduled_slot, cell_id, pusch_cfg, imeisv, rar_ta);
     payloads.push_back(payload.dump());
 
     logger.debug("DMRS sched: plmn={} nci={} rnti={} sfn={} slot={} imeisv={}",
                  cell_id.plmn_id.to_string(),
                  cell_id.nci.value(),
                  fmt::format("{:#x}", to_value(pusch_cfg.rnti)),
-                 slot.sfn(),
-                 slot.slot_index(),
+                 scheduled_slot.sfn(),
+                 scheduled_slot.slot_index(),
                  imeisv);
   }
 
