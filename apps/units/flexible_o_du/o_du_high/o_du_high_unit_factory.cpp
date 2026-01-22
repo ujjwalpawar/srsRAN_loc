@@ -345,6 +345,7 @@ o_du_high_unit srsran::make_o_du_high_unit(const o_du_high_unit_config&  o_du_hi
   odu_unit.commands.remote.push_back(std::make_unique<ssb_modify_remote_command>(du_conf));
   odu_unit.commands.remote.push_back(std::make_unique<positioning_trigger_remote_command>(du_conf));
   odu_unit.commands.remote.push_back(std::make_unique<positioning_stop_remote_command>(du_conf));
+  odu_unit.commands.remote.push_back(std::make_unique<dmrs_schedule_remote_command>());
 
   return odu_unit;
 }

@@ -620,7 +620,7 @@ bool srs_scheduler_impl::allocate_srs_opportunity(cell_slot_resource_allocator& 
     desc.slot                  = slot_alloc.slot;
     desc.rnti                  = srs_opportunity.rnti;
     desc.resource              = *srs_res;
-    desc.positioning_requested = is_connected_ue;
+    desc.positioning_requested = is_connected_ue || (pos_req != nullptr);
     desc.imeisv                = imeisv;
     desc.rar_ta                = rar_ta;
     if (pos_req) {

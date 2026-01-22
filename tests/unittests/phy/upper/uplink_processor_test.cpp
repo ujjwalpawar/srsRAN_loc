@@ -27,6 +27,7 @@
 #include "channel_processors/prach_detector_test_doubles.h"
 #include "channel_processors/pucch/pucch_processor_test_doubles.h"
 #include "channel_processors/pusch/pusch_processor_test_doubles.h"
+#include "signal_processors/dmrs_pusch_estimator_test_doubles.h"
 #include "signal_processors/srs/srs_estimator_test_doubles.h"
 #include "upper_phy_rx_results_notifier_test_doubles.h"
 #include "srsran/phy/upper/upper_phy_factories.h"
@@ -107,11 +108,13 @@ public:
     auto pusch_proc = std::make_unique<pusch_processor_spy>();
     auto pucch_proc = std::make_unique<pucch_processor_dummy>();
     auto srs        = std::make_unique<srs_estimator_dummy>();
+    auto dmrs       = std::make_unique<dmrs_pusch_estimator_spy>();
 
     ASSERT_NE(prach, nullptr);
     ASSERT_NE(pusch_proc, nullptr);
     ASSERT_NE(pucch_proc, nullptr);
     ASSERT_NE(srs, nullptr);
+    ASSERT_NE(dmrs, nullptr);
 
     prach_spy = prach.get();
     pusch_spy = pusch_proc.get();
@@ -125,6 +128,7 @@ public:
                                                            std::move(pusch_proc),
                                                            std::move(pucch_proc),
                                                            std::move(srs),
+                                                           std::move(dmrs),
                                                            executors,
                                                            buffer_pool_spy,
                                                            results_notifier,

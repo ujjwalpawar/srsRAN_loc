@@ -68,13 +68,13 @@ void apply_fd_smoothing(span<cf_t>                                   enlarged_fi
 /// \param[in] pattern      DM-RS pattern for the current layer.
 /// \param[in] hop          Intra-slot frequency hopping index: 0 for first position (before hopping), 1 for second
 ///                         position (after hopping).
-/// \param[in] scs          Subcarrier spacing.
+/// \param[in] cfg          Channel estimator configuration (used for logging metadata).
 /// \param[in] ta_estimator Time alignment estimator.
 /// \return The estimated time alignment as a number of samples (the sampling frequency is given by the DFT processor).
 float estimate_time_alignment(const re_measurement<cf_t>&                       pilots_lse,
                               const port_channel_estimator::layer_dmrs_pattern& pattern,
                               unsigned                                          hop,
-                              subcarrier_spacing                                scs,
+                              const port_channel_estimator::configuration&      cfg,
                               time_alignment_estimator&                         ta_estimator);
 
 // Returns the interpolator configuration for the given RE pattern.

@@ -230,6 +230,8 @@ struct scheduler_positioning_export_endpoint {
 };
 
 struct scheduler_positioning_export_config {
+  /// Selects which UL reference signal to export to neighbouring base stations ("srs" or "dmrs").
+  std::string signal = "srs";
   std::vector<scheduler_positioning_export_endpoint> neighbours;
 };
 

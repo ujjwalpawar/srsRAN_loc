@@ -31,6 +31,7 @@
 #include "common_scheduling/sib_scheduler.h"
 #include "common_scheduling/ssb_scheduler.h"
 #include "config/cell_configuration.h"
+#include "dmrs/dmrs_schedule_remote_exporter.h"
 #include "logging/scheduler_event_logger.h"
 #include "logging/scheduler_result_logger.h"
 #include "pdcch_scheduling/pdcch_resource_allocator_impl.h"
@@ -100,6 +101,7 @@ private:
   pucch_guardbands_scheduler    pucch_guard_sch;
   paging_scheduler              pg_sch;
   std::unique_ptr<srs_schedule_exporter> srs_exporter;
+  std::unique_ptr<dmrs_schedule_remote_exporter> dmrs_exporter;
 
   // Tracer of resource usage (e.g. context switches)
   rusage_trace_recorder<logger_event_tracer<true>> res_usage_tracer;

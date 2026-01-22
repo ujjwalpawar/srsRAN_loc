@@ -21,10 +21,13 @@
  */
 
 #include "cell_scheduler.h"
+#include "dmrs/dmrs_schedule_remote_exporter.h"
 #include "logging/scheduler_metrics_handler.h"
 #include "srs/srs_schedule_file_exporter.h"
 #include "srs/srs_schedule_remote_exporter.h"
 #include "ue_scheduling/ue_scheduler_impl.h"
+#include <algorithm>
+#include <cctype>
 
 using namespace srsran;
 
@@ -34,6 +37,12 @@ static std::chrono::microseconds get_tracer_thres(const cell_configuration& cell
   std::chrono::microseconds slot_dur{1000 >>
                                      to_numerology_value(cell_cfg.dl_cfg_common.init_dl_bwp.generic_params.scs)};
   return cell_cfg.expert_cfg.log_high_latency_diagnostics ? slot_dur : std::chrono::microseconds{0};
+}
+
+static std::string normalize_signal(std::string signal)
+{
+  std::transform(signal.begin(), signal.end(), signal.begin(), [](unsigned char c) { return std::tolower(c); });
+  return signal;
 }
 
 cell_scheduler::cell_scheduler(const scheduler_expert_config&                  sched_cfg,
@@ -64,9 +73,16 @@ cell_scheduler::cell_scheduler(const scheduler_expert_config&                  s
                    get_tracer_thres(cell_cfg),
                    8)
 {
+  const std::string export_signal = normalize_signal(sched_cfg.positioning_export.signal);
+  const bool        use_dmrs      = export_signal == "dmrs";
+
   if (!sched_cfg.positioning_export.neighbours.empty()) {
-    srs_exporter = std::make_unique<srs_schedule_remote_exporter>(sched_cfg.positioning_export);
-  } else {
+    if (use_dmrs) {
+      dmrs_exporter = std::make_unique<dmrs_schedule_remote_exporter>(sched_cfg.positioning_export);
+    } else {
+      srs_exporter = std::make_unique<srs_schedule_remote_exporter>(sched_cfg.positioning_export);
+    }
+  } else if (!use_dmrs) {
     srs_exporter = std::make_unique<srs_schedule_file_exporter>("descriptor.json");
   }
 
@@ -157,6 +173,10 @@ void cell_scheduler::run_slot(slot_point sl_tx)
   auto slot_stop_tp = std::chrono::high_resolution_clock::now();
   auto slot_dur     = std::chrono::duration_cast<std::chrono::microseconds>(slot_stop_tp - slot_start_tp);
   res_usage_tracer.stop("sched_ue");
+
+  if (dmrs_exporter) {
+    dmrs_exporter->handle_slot(sl_tx, cell_cfg.nr_cgi, last_result().ul.puschs);
+  }
 
   // > Log processed events.
   event_logger.log();

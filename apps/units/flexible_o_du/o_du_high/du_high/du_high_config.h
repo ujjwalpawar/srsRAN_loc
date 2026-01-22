@@ -431,6 +431,8 @@ struct du_high_unit_positioning_neighbor_config {
 };
 
 struct du_high_unit_positioning_config {
+  /// Selects which UL reference signal to export ("srs" or "dmrs").
+  std::string signal = "srs";
   std::vector<du_high_unit_positioning_neighbor_config> neighbours;
 };
 

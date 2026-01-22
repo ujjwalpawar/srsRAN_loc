@@ -104,6 +104,9 @@ void dmrs_pusch_estimator_impl::estimate(channel_estimate&           estimate,
   est_cfg.nof_symbols  = config.nof_symbols;
   est_cfg.rx_ports     = config.rx_ports;
   est_cfg.scaling      = config.scaling;
+  est_cfg.slot         = config.slot;
+  est_cfg.rnti         = config.rnti;
+  est_cfg.enable_udp   = config.enable_udp;
 
   for (unsigned i_port = 0; i_port != nof_rx_ports; ++i_port) {
     ch_estimator->compute(estimate, grid, i_port, temp_symbols, est_cfg);

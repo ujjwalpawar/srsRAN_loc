@@ -29,6 +29,7 @@
 #include "srsran/phy/upper/channel_estimation.h"
 #include "srsran/phy/upper/dmrs_mapping.h"
 #include "srsran/ran/cyclic_prefix.h"
+#include "srsran/ran/rnti.h"
 #include "srsran/ran/slot_point.h"
 #include "srsran/ran/subcarrier_spacing.h"
 #include <variant>
@@ -86,6 +87,10 @@ public:
     unsigned nof_symbols = 0;
     /// List of receive ports.
     static_vector<uint8_t, DMRS_MAX_NPORTS> rx_ports;
+    /// Optional RNTI for UDP logging.
+    rnti_t rnti = rnti_t::INVALID_RNTI;
+    /// Enables UDP logging for DMRS measurements.
+    bool enable_udp = false;
 
     /// \brief Gets the number of transmit layers.
     ///

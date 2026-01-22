@@ -77,4 +77,15 @@ private:
   srs_du::du_configurator& configurator;
 };
 
+/// Remote command that reports DMRS schedules from a neighbour.
+class dmrs_schedule_remote_command : public app_services::remote_command
+{
+public:
+  std::string_view get_name() const override { return "dmrs_schedule"; }
+
+  std::string_view get_description() const override { return "Accepts uplink DMRS schedules from neighbours"; }
+
+  error_type<std::string> execute(const nlohmann::json& json) override;
+};
+
 } // namespace srsran

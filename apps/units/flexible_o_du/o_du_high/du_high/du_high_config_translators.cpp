@@ -1058,6 +1058,7 @@ scheduler_expert_config srsran::generate_scheduler_expert_config(const du_high_u
   out_cfg.log_high_latency_diagnostics = config.loggers.high_latency_diagnostics_enabled;
   out_cfg.metrics_report_period        = std::chrono::milliseconds{config.metrics.sched_report_period};
 
+  out_cfg.positioning_export.signal = cell.positioning_cfg.signal.empty() ? "srs" : cell.positioning_cfg.signal;
   out_cfg.positioning_export.neighbours.clear();
   for (const auto& neighbour : cell.positioning_cfg.neighbours) {
     if (neighbour.address.empty()) {

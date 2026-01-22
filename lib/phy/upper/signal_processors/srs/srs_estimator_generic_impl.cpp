@@ -277,7 +277,7 @@ srs_estimator_result srs_estimator_generic_impl::estimate(const resource_grid_re
 
       // Scale accumulated LSE.
       if (nof_symbols > 1) {
-        srsvec::sc_prod(mean_lse, 1.0 / static_cast<float>(nof_symbols), mean_lse);
+        srsvec::sc_prod(mean_lse, 1.0 / static_cast<float>(nof_symbols), mean_lse); 
       }
 
       port_lse.set_slice(i_rx_port_index, mean_lse);

@@ -56,17 +56,20 @@ public:
                                 std::shared_ptr<pusch_processor_factory>         pusch_factory_,
                                 std::shared_ptr<prach_detector_factory>          prach_factory_,
                                 std::shared_ptr<srs_estimator_factory>           srs_factory_,
+                                std::shared_ptr<dmrs_pusch_estimator_factory>    dmrs_factory_,
                                 uplink_processor_impl::task_executor_collection& task_executors_) :
     pucch_factory(std::move(pucch_factory_)),
     pusch_factory(std::move(pusch_factory_)),
     prach_factory(std::move(prach_factory_)),
     srs_factory(std::move(srs_factory_)),
+    dmrs_factory(std::move(dmrs_factory_)),
     task_executors(task_executors_)
   {
     report_fatal_error_if_not(prach_factory, "Invalid PRACH factory.");
     report_fatal_error_if_not(pusch_factory, "Invalid PUSCH factory.");
     report_fatal_error_if_not(pucch_factory, "Invalid PUCCH factory.");
     report_fatal_error_if_not(srs_factory, "Invalid SRS factory.");
+    report_fatal_error_if_not(dmrs_factory, "Invalid DMRS factory.");
   }
 
   std::unique_ptr<uplink_processor> create(const uplink_processor_config& config) override
@@ -83,10 +86,14 @@ public:
     std::unique_ptr<srs_estimator> srs = srs_factory->create();
     report_fatal_error_if_not(srs, "Invalid SRS estimator.");
 
+    std::unique_ptr<dmrs_pusch_estimator> dmrs = dmrs_factory->create();
+    report_fatal_error_if_not(dmrs, "Invalid DMRS estimator.");
+
     return std::make_unique<uplink_processor_impl>(std::move(prach),
                                                    std::move(pusch_proc),
                                                    std::move(pucch_proc),
                                                    std::move(srs),
+                                                   std::move(dmrs),
                                                    task_executors,
                                                    config.rm_buffer_pool,
                                                    config.notifier,
@@ -109,10 +116,14 @@ public:
     std::unique_ptr<srs_estimator> srs = srs_factory->create(logger);
     report_fatal_error_if_not(srs, "Invalid SRS estimator.");
 
+    std::unique_ptr<dmrs_pusch_estimator> dmrs = dmrs_factory->create();
+    report_fatal_error_if_not(dmrs, "Invalid DMRS estimator.");
+
     return std::make_unique<uplink_processor_impl>(std::move(prach),
                                                    std::move(pusch_proc),
                                                    std::move(pucch_proc),
                                                    std::move(srs),
+                                                   std::move(dmrs),
                                                    task_executors,
                                                    config.rm_buffer_pool,
                                                    config.notifier,
@@ -133,6 +144,7 @@ private:
   std::shared_ptr<pusch_processor_factory>        pusch_factory;
   std::shared_ptr<prach_detector_factory>         prach_factory;
   std::shared_ptr<srs_estimator_factory>          srs_factory;
+  std::shared_ptr<dmrs_pusch_estimator_factory>   dmrs_factory;
   uplink_processor_impl::task_executor_collection task_executors;
 };
 
@@ -679,6 +691,7 @@ create_ul_processor_factory(const upper_phy_config& config, upper_phy_metrics_no
                                                       std::move(pusch_factory),
                                                       std::move(prach_factory),
                                                       std::move(srs_factory),
+                                                      pusch_channel_estimator_factory,
                                                       ul_task_executors);
   report_fatal_error_if_not(factory, "Invalid Uplink processor factory.");
 

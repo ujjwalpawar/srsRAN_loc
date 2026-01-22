@@ -23,13 +23,19 @@
 #include "apps/units/flexible_o_du/o_du_high/du_high/commands/du_high_remote_commands.h"
 #include "fmt/format.h"
 #include "nlohmann/json.hpp"
+#include "srsran/phy/support/dmrs_measurement_queue.h"
 #include "srsran/ran/du_types.h"
+#include "srsran/ran/dmrs.h"
 #include "srsran/ran/nr_cgi.h"
 #include "srsran/ran/rnti.h"
+#include "srsran/ran/sch/sch_dmrs_power.h"
+#include "srsran/ran/subcarrier_spacing.h"
 #include "srsran/ran/srs/srs_configuration.h"
+#include "srsran/scheduler/result/vrb_alloc.h"
 #include "srsran/scheduler/ue_identity_tracker.h"
 #include "srsran/scheduler/ta_shared.h"
 #include "srsran/srslog/srslog.h"
+#include "srsran/support/math/math_utils.h"
 #include <chrono>
 
 using namespace srsran;
@@ -37,6 +43,7 @@ using namespace srsran;
 namespace {
 
 srslog::basic_logger& positioning_logger = srslog::fetch_basic_logger("POSITIONING", false);
+srslog::basic_logger& dmrs_logger = srslog::fetch_basic_logger("DMRS_EXPORT", false);
 
 expected<nr_cell_global_id_t, std::string> parse_nr_cgi_from_json(const nlohmann::json& cell)
 {
@@ -525,3 +532,263 @@ error_type<std::string> positioning_stop_remote_command::execute(const nlohmann:
   }
   return make_unexpected("Positioning stop failed to be applied by the DU");
 }
+
+#define RETURN_IF_ERROR(expr)                                                                                               \
+  if (auto _err = (expr); !_err) {                                                                                          \
+    return _err;                                                                                                            \
+  }
+
+error_type<std::string> dmrs_schedule_remote_command::execute(const nlohmann::json& json)
+{
+  auto cells_key = json.find("cells");
+  if (cells_key == json.end()) {
+    return make_unexpected("'cells' object is missing and it is mandatory");
+  }
+  if (!cells_key->is_array()) {
+    return make_unexpected("'cells' object value type should be an array");
+  }
+
+  auto cells_items = cells_key->items();
+  if (cells_items.begin() == cells_items.end()) {
+    return make_unexpected("'cells' object does not contain any cell entries");
+  }
+
+  auto fetch_bool = [](const nlohmann::json& parent, const char* field, bool& value) -> error_type<std::string> {
+    auto it = parent.find(field);
+    if (it == parent.end()) {
+      return make_unexpected(fmt::format("'{}' object is missing and it is mandatory", field));
+    }
+    if (!it->is_boolean()) {
+      return make_unexpected(fmt::format("'{}' object value type should be a boolean", field));
+    }
+    value = it->get<bool>();
+    return {};
+  };
+
+  auto parse_dmrs_type = [](const std::string& value) -> expected<dmrs_type, std::string> {
+    if (value == "type1") {
+      return dmrs_type::TYPE1;
+    }
+    if (value == "type2") {
+      return dmrs_type::TYPE2;
+    }
+    return make_unexpected(fmt::format("Unsupported dmrs.config_type '{}'", value));
+  };
+
+  auto parse_nominal_rbg_size = [](unsigned value) -> expected<nominal_rbg_size, std::string> {
+    switch (value) {
+      case 2:
+        return nominal_rbg_size::P2;
+      case 4:
+        return nominal_rbg_size::P4;
+      case 8:
+        return nominal_rbg_size::P8;
+      case 16:
+        return nominal_rbg_size::P16;
+      default:
+        return make_unexpected(fmt::format("Unsupported rbg_size '{}'", value));
+    }
+  };
+
+  for (const auto& cell : cells_items) {
+    auto nr_cgi = parse_nr_cgi_from_json(cell.value());
+    if (!nr_cgi) {
+      return make_unexpected(nr_cgi.error());
+    }
+
+    auto schedule_key = cell.value().find("schedule");
+    if (schedule_key == cell.value().end() || !schedule_key->is_object()) {
+      return make_unexpected("'schedule' object is missing and it is mandatory");
+    }
+
+    rnti_t rnti = rnti_t::INVALID_RNTI;
+    if (auto err = parse_rnti(schedule_key.value(), rnti); !err) {
+      return err;
+    }
+
+    std::string imeisv = "unknown";
+    if (auto imeisv_key = schedule_key->find("imeisv"); imeisv_key != schedule_key->end() && imeisv_key->is_string()) {
+      imeisv = imeisv_key->get<std::string>();
+    }
+
+    if (imeisv != "unknown") {
+      ue_identity_tracker::set_imeisv_for_crnti(to_value(rnti), imeisv);
+    }
+
+    unsigned sfn  = 0;
+    unsigned slot = 0;
+    RETURN_IF_ERROR(fetch_number(schedule_key.value(), "sfn", sfn));
+    RETURN_IF_ERROR(fetch_number(schedule_key.value(), "slot", slot));
+
+    if (auto rar_ta_field = schedule_key->find("rar_ta");
+        rar_ta_field != schedule_key->end() && rar_ta_field->is_number_integer()) {
+      const int rar_ta_value = rar_ta_field->get<int>();
+      const auto now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                              std::chrono::system_clock::now().time_since_epoch())
+                              .count();
+      set_last_ta_with_crnti(now_ns, rar_ta_value, true, to_value(rnti));
+      dmrs_logger.info("DMRS schedule stashed RAR TA={} for rnti={}", rar_ta_value, fmt::format("{:#x}", to_value(rnti)));
+    }
+
+    auto bwp_key = schedule_key->find("bwp");
+    if (bwp_key == schedule_key->end() || !bwp_key->is_object()) {
+      return make_unexpected("'bwp' object is missing and it is mandatory");
+    }
+    unsigned bwp_crb_start = 0;
+    unsigned bwp_nof_prbs  = 0;
+    unsigned bwp_scs_khz   = 0;
+    RETURN_IF_ERROR(fetch_number(bwp_key.value(), "crb_start", bwp_crb_start));
+    RETURN_IF_ERROR(fetch_number(bwp_key.value(), "nof_prbs", bwp_nof_prbs));
+    RETURN_IF_ERROR(fetch_number(bwp_key.value(), "scs_khz", bwp_scs_khz));
+    if (bwp_crb_start + bwp_nof_prbs > MAX_RB) {
+      return make_unexpected(
+          fmt::format("BWP exceeds max RBs (crb_start={} nof_prbs={} max={})", bwp_crb_start, bwp_nof_prbs, MAX_RB));
+    }
+
+    subcarrier_spacing scs = to_subcarrier_spacing(std::to_string(bwp_scs_khz));
+    if (scs == subcarrier_spacing::invalid) {
+      return make_unexpected(fmt::format("Unsupported scs_khz '{}'", bwp_scs_khz));
+    }
+
+    auto symbols_key = schedule_key->find("symbols");
+    if (symbols_key == schedule_key->end() || !symbols_key->is_object()) {
+      return make_unexpected("'symbols' object is missing and it is mandatory");
+    }
+    unsigned start_symbol = 0;
+    unsigned nof_symbols  = 0;
+    RETURN_IF_ERROR(fetch_number(symbols_key.value(), "start", start_symbol));
+    RETURN_IF_ERROR(fetch_number(symbols_key.value(), "length", nof_symbols));
+
+    auto dmrs_key = schedule_key->find("dmrs");
+    if (dmrs_key == schedule_key->end() || !dmrs_key->is_object()) {
+      return make_unexpected("'dmrs' object is missing and it is mandatory");
+    }
+
+    uint64_t symbol_mask = 0;
+    uint64_t ports_mask  = 0;
+    RETURN_IF_ERROR(fetch_number(dmrs_key.value(), "symbol_mask", symbol_mask));
+    RETURN_IF_ERROR(fetch_number(dmrs_key.value(), "ports_mask", ports_mask));
+
+    auto config_type_key = dmrs_key->find("config_type");
+    if (config_type_key == dmrs_key->end() || !config_type_key->is_string()) {
+      return make_unexpected("'dmrs.config_type' object is missing and it is mandatory");
+    }
+    auto dmrs_type_value = parse_dmrs_type(config_type_key->get<std::string>());
+    if (!dmrs_type_value) {
+      return make_unexpected(dmrs_type_value.error());
+    }
+
+    unsigned scrambling_id              = 0;
+    unsigned nof_cdm_groups_no_data     = 0;
+    bool     n_scid                     = false;
+    bool     transform_precoding        = false;
+    unsigned dmrs_id                    = 0;
+
+    RETURN_IF_ERROR(fetch_number(dmrs_key.value(), "scrambling_id", scrambling_id));
+    RETURN_IF_ERROR(fetch_number(dmrs_key.value(), "num_cdm_groups_no_data", nof_cdm_groups_no_data));
+    RETURN_IF_ERROR(fetch_bool(dmrs_key.value(), "n_scid", n_scid));
+    RETURN_IF_ERROR(fetch_bool(dmrs_key.value(), "transform_precoding", transform_precoding));
+    if (transform_precoding) {
+      RETURN_IF_ERROR(fetch_number(dmrs_key.value(), "dmrs_id", dmrs_id));
+    }
+
+    auto rb_alloc_key = schedule_key->find("rb_allocation");
+    if (rb_alloc_key == schedule_key->end() || !rb_alloc_key->is_object()) {
+      return make_unexpected("'rb_allocation' object is missing and it is mandatory");
+    }
+
+    bounded_bitset<MAX_RB> rb_mask;
+    rb_mask.resize(bwp_crb_start + bwp_nof_prbs);
+
+    auto rb_alloc_type_key = rb_alloc_key->find("type");
+    if (rb_alloc_type_key == rb_alloc_key->end() || !rb_alloc_type_key->is_string()) {
+      return make_unexpected("'rb_allocation.type' object is missing and it is mandatory");
+    }
+    const std::string rb_alloc_type = rb_alloc_type_key->get<std::string>();
+    if (rb_alloc_type == "type1") {
+      unsigned rb_start = 0;
+      unsigned rb_length = 0;
+      RETURN_IF_ERROR(fetch_number(rb_alloc_key.value(), "start", rb_start));
+      RETURN_IF_ERROR(fetch_number(rb_alloc_key.value(), "length", rb_length));
+      if (rb_start + rb_length > bwp_nof_prbs) {
+        return make_unexpected(
+            fmt::format("Type1 RB allocation exceeds BWP (start={} length={} bwp_prbs={})",
+                        rb_start,
+                        rb_length,
+                        bwp_nof_prbs));
+      }
+      rb_mask.fill(bwp_crb_start + rb_start, bwp_crb_start + rb_start + rb_length);
+    } else if (rb_alloc_type == "type0") {
+      auto rbg_mask_key = rb_alloc_key->find("rbg_mask");
+      if (rbg_mask_key == rb_alloc_key->end() || !rbg_mask_key->is_string()) {
+        return make_unexpected("'rb_allocation.rbg_mask' object is missing and it is mandatory");
+      }
+
+      unsigned rbg_size = 0;
+      RETURN_IF_ERROR(fetch_number(rb_alloc_key.value(), "rbg_size", rbg_size));
+      auto rbg_size_value = parse_nominal_rbg_size(rbg_size);
+      if (!rbg_size_value) {
+        return make_unexpected(rbg_size_value.error());
+      }
+
+      unsigned rbg_count = 0;
+      RETURN_IF_ERROR(fetch_number(rb_alloc_key.value(), "rbg_count", rbg_count));
+
+      rbg_bitmap rbgs(rbg_count);
+      try {
+        rbgs.from_uint64(std::stoull(rbg_mask_key->get<std::string>(), nullptr, 0));
+      } catch (const std::exception& e) {
+        return make_unexpected(fmt::format("Failed to parse rbg_mask '{}': {}", rbg_mask_key->get<std::string>(), e.what()));
+      }
+
+      crb_interval bwp_rbs(bwp_crb_start, bwp_crb_start + bwp_nof_prbs);
+      prb_bitmap prbs = convert_rbgs_to_prbs(rbgs, bwp_rbs, rbg_size_value.value());
+      for (size_t prb = 0; prb != prbs.size(); ++prb) {
+        if (prbs.test(prb)) {
+          rb_mask.set(bwp_crb_start + prb);
+        }
+      }
+    } else {
+      return make_unexpected(fmt::format("Unsupported rb_allocation.type '{}'", rb_alloc_type));
+    }
+
+    dmrs_pusch_estimator::configuration cfg;
+    cfg.slot = slot_point(scs, sfn, slot);
+    cfg.rnti = rnti;
+    cfg.enable_udp = true;
+    if (transform_precoding) {
+      cfg.sequence_config = dmrs_pusch_estimator::low_papr_sequence_configuration{.n_rs_id = dmrs_id};
+    } else {
+      unsigned nof_tx_layers = static_cast<unsigned>(count_ones(ports_mask));
+      if (nof_tx_layers == 0) {
+        nof_tx_layers = 1;
+      }
+      cfg.sequence_config = dmrs_pusch_estimator::pseudo_random_sequence_configuration{
+          .type          = dmrs_type_value.value(),
+          .nof_tx_layers = nof_tx_layers,
+          .scrambling_id = scrambling_id,
+          .n_scid        = n_scid};
+    }
+    cfg.scaling      = convert_dB_to_amplitude(-get_sch_to_dmrs_ratio_dB(nof_cdm_groups_no_data));
+    cfg.c_prefix     = cyclic_prefix::NORMAL;
+    cfg.symbols_mask.resize(get_nsymb_per_slot(cfg.c_prefix));
+    cfg.symbols_mask.from_uint64(symbol_mask);
+    cfg.rb_mask      = rb_mask;
+    cfg.first_symbol = start_symbol;
+    cfg.nof_symbols  = nof_symbols;
+
+    get_dmrs_measurement_queue().push(dmrs_measurement_request{.config = std::move(cfg)});
+
+    dmrs_logger.info("DMRS schedule received: cell={}/{} imeisv={} rnti={} sfn={} slot={}",
+                     nr_cgi->plmn_id.to_string(),
+                     nr_cgi->nci.value(),
+                     imeisv,
+                     fmt::format("{:#x}", to_value(rnti)),
+                     sfn,
+                     slot);
+  }
+
+  return {};
+}
+
+#undef RETURN_IF_ERROR

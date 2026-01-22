@@ -1150,6 +1150,13 @@ static void configure_cli11_positioning_neighbor_args(CLI::App& app,
 
 static void configure_cli11_positioning_args(CLI::App& app, du_high_unit_positioning_config& positioning_params)
 {
+  add_option(app,
+             "--signal",
+             positioning_params.signal,
+             "UL reference signal to export to neighbours (srs or dmrs)")
+      ->capture_default_str()
+      ->check(CLI::IsMember({"srs", "dmrs"}, CLI::ignore_case));
+
   auto neighbours_lambda = [&positioning_params](const std::vector<std::string>& values) {
     positioning_params.neighbours.resize(values.size());
     for (unsigned i = 0, e = values.size(); i != e; ++i) {

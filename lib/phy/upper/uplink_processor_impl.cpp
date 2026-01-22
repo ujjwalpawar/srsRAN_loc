@@ -24,6 +24,7 @@
 #include "srsran/instrumentation/traces/du_traces.h"
 #include "srsran/phy/support/prach_buffer.h"
 #include "srsran/phy/support/prach_buffer_context.h"
+#include "srsran/phy/support/resource_grid_reader.h"
 #include "srsran/phy/support/shared_resource_grid.h"
 #include "srsran/phy/upper/unique_rx_buffer.h"
 #include "srsran/phy/upper/upper_phy_rx_results_notifier.h"
@@ -51,6 +52,7 @@ uplink_processor_impl::uplink_processor_impl(std::unique_ptr<prach_detector>  pr
                                              std::unique_ptr<pusch_processor> pusch_proc_,
                                              std::unique_ptr<pucch_processor> pucch_proc_,
                                              std::unique_ptr<srs_estimator>   srs_,
+                                             std::unique_ptr<dmrs_pusch_estimator> dmrs_estimator_,
                                              task_executor_collection&        task_executors_,
                                              rx_buffer_pool&                  rm_buffer_pool_,
                                              upper_phy_rx_results_notifier&   notifier_,
@@ -60,6 +62,7 @@ uplink_processor_impl::uplink_processor_impl(std::unique_ptr<prach_detector>  pr
   pusch_proc(std::move(pusch_proc_)),
   pucch_proc(std::move(pucch_proc_)),
   srs(std::move(srs_)),
+  dmrs_estimator(std::move(dmrs_estimator_)),
   task_executors(task_executors_),
   rm_buffer_pool(rm_buffer_pool_),
   rx_payload_pool(max_nof_prb, max_nof_layers),
@@ -70,6 +73,7 @@ uplink_processor_impl::uplink_processor_impl(std::unique_ptr<prach_detector>  pr
   srsran_assert(pusch_proc, "A valid PUSCH processor must be provided");
   srsran_assert(pucch_proc, "A valid PUCCH processor must be provided");
   srsran_assert(srs, "A valid SRS channel estimator must be provided");
+  srsran_assert(dmrs_estimator, "A valid DMRS channel estimator must be provided");
 }
 
 uplink_slot_processor& uplink_processor_impl::get_slot_processor()
@@ -106,7 +110,9 @@ void uplink_processor_impl::handle_rx_symbol(const shared_resource_grid& grid, u
 
   // Skip if no PDUs are available.
   if (pdus.empty()) {
-    return;
+    if (end_symbol_index + 1 < grid.get_reader().get_nof_symbols()) {
+      return;
+    }
   }
 
   // Process all the PDUs taken from the repository.
@@ -121,6 +127,41 @@ void uplink_processor_impl::handle_rx_symbol(const shared_resource_grid& grid, u
       // std::cout << "SRS PDU" << std::endl;
       process_srs(grid, *srs_pdu);
     }
+  }
+
+  if (end_symbol_index + 1 < grid.get_reader().get_nof_symbols()) {
+    return;
+  }
+
+  auto dmrs_requests = get_dmrs_measurement_queue().pop_slot(current_slot);
+  if (dmrs_requests.empty()) {
+    return;
+  }
+
+  bool success = task_executors.srs_executor.execute([this, grid2 = grid.copy(),
+                                                      requests = std::move(dmrs_requests)]() mutable {
+    trace_point tp = l1_tracer.now();
+
+    const resource_grid_reader& reader = grid2.get_reader();
+    const unsigned              nof_ports = reader.get_nof_ports();
+
+    for (auto& req : requests) {
+      if (req.config.rx_ports.empty()) {
+        req.config.rx_ports.resize(nof_ports);
+        for (unsigned port = 0; port != nof_ports; ++port) {
+          req.config.rx_ports[port] = static_cast<uint8_t>(port);
+        }
+      }
+
+      channel_estimate estimate;
+      dmrs_estimator->estimate(estimate, reader, req.config);
+    }
+
+    l1_tracer << trace_event("process_dmrs", tp);
+  });
+
+  if (!success) {
+    logger.warning(current_slot.sfn(), current_slot.slot_index(), "Failed to execute DMRS measurement. Ignoring.");
   }
 }
 

@@ -307,7 +307,7 @@ void port_channel_estimator_average_impl::compute_hop(srsran::channel_estimate& 
     });
   }
 
-  time_alignment_s += estimate_time_alignment(filtered_pilots_lse, pattern, hop, cfg.scs, *ta_estimator);
+  time_alignment_s += estimate_time_alignment(filtered_pilots_lse, pattern, hop, cfg, *ta_estimator);
 
   noise_var += estimate_noise(pilots,
                               rx_pilots,

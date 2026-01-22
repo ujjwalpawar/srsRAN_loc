@@ -27,8 +27,10 @@
 #include "srsran/instrumentation/traces/du_traces.h"
 #include "srsran/phy/support/resource_grid_context.h"
 #include "srsran/phy/support/shared_resource_grid.h"
+#include "srsran/phy/support/dmrs_measurement_queue.h"
 #include "srsran/phy/upper/channel_processors/pusch/pusch_processor_result_notifier.h"
 #include "srsran/phy/upper/rx_buffer_pool.h"
+#include "srsran/phy/upper/signal_processors/dmrs_pusch_estimator.h"
 #include "srsran/phy/upper/signal_processors/srs/srs_estimator.h"
 #include "srsran/phy/upper/uplink_processor.h"
 #include "srsran/phy/upper/uplink_slot_processor.h"
@@ -181,6 +183,7 @@ public:
                         std::unique_ptr<pusch_processor> pusch_proc_,
                         std::unique_ptr<pucch_processor> pucch_proc_,
                         std::unique_ptr<srs_estimator>   srs_,
+                        std::unique_ptr<dmrs_pusch_estimator> dmrs_estimator_,
                         task_executor_collection&        task_executors_,
                         rx_buffer_pool&                  rm_buffer_pool_,
                         upper_phy_rx_results_notifier&   notifier_,
@@ -232,6 +235,8 @@ private:
   std::unique_ptr<pucch_processor> pucch_proc;
   /// SRS channel estimator.
   std::unique_ptr<srs_estimator> srs;
+  /// DMRS channel estimator for neighbour measurements.
+  std::unique_ptr<dmrs_pusch_estimator> dmrs_estimator;
   /// Task executors.
   task_executor_collection task_executors;
   /// Receive buffer pool.

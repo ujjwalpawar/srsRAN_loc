@@ -28,6 +28,8 @@
 #include "srsran/srsvec/mean.h"
 #include "srsran/srsvec/sc_prod.h"
 #include "srsran/srsvec/unwrap.h"
+#include <chrono>
+#include <vector>
 
 #if defined(__AVX2__)
 #include <immintrin.h>
@@ -247,7 +249,7 @@ void srsran::apply_fd_smoothing(span<cf_t>                                   enl
 float srsran::estimate_time_alignment(const re_measurement<cf_t>&                       pilots_lse,
                                       const port_channel_estimator::layer_dmrs_pattern& pattern,
                                       unsigned                                          hop,
-                                      subcarrier_spacing                                scs,
+                                      const port_channel_estimator::configuration&      cfg,
                                       time_alignment_estimator&                         ta_estimator)
 {
   const bounded_bitset<MAX_RB>& hop_rb_mask = (hop == 0) ? pattern.rb_mask : pattern.rb_mask2;
@@ -265,21 +267,83 @@ float srsran::estimate_time_alignment(const re_measurement<cf_t>&               
     }
   }
 
+  auto build_symbol_list = [&](unsigned first_symbol, unsigned last_symbol) {
+    std::vector<uint16_t> symbols;
+    for (unsigned symbol = first_symbol; symbol != last_symbol; ++symbol) {
+      if (pattern.symbols.test(symbol)) {
+        symbols.push_back(static_cast<uint16_t>(symbol));
+      }
+    }
+    return symbols;
+  };
+
+  auto build_subcarrier_list = [&](const bounded_bitset<MAX_RB>& rb_mask, const bounded_bitset<NRE>& re_pattern) {
+    std::vector<uint16_t> subcarriers;
+    subcarriers.reserve(rb_mask.count() * re_pattern.count());
+    rb_mask.for_each(0, rb_mask.size(), [&](unsigned rb) {
+      re_pattern.for_each(0, re_pattern.size(), [&](unsigned re) {
+        subcarriers.push_back(static_cast<uint16_t>(rb * NRE + re));
+      });
+    });
+    return subcarriers;
+  };
+
+  auto estimate_with_udp = [&](unsigned stride) {
+    const auto now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
+    unsigned first_symbol = ((hop == 1) && pattern.hopping_symbol_index.has_value())
+                                ? pattern.hopping_symbol_index.value()
+                                : cfg.first_symbol;
+    unsigned last_symbol = ((hop == 0) && pattern.hopping_symbol_index.has_value())
+                               ? pattern.hopping_symbol_index.value()
+                               : cfg.first_symbol + cfg.nof_symbols;
+    std::vector<uint16_t> symbols    = build_symbol_list(first_symbol, last_symbol);
+    std::vector<uint16_t> subcarriers = build_subcarrier_list(hop_rb_mask, pattern.re_pattern);
+    span<const uint16_t>  symbol_span(symbols.data(), symbols.size());
+    span<const uint16_t>  subcarrier_span(subcarriers.data(), subcarriers.size());
+
+    uint16_t rnti_value = (cfg.rnti == rnti_t::INVALID_RNTI) ? 0U : to_value(cfg.rnti);
+    uint16_t subframe_index = cfg.slot.valid() ? static_cast<uint16_t>(cfg.slot.subframe_index()) : 0U;
+    uint16_t slot_index = cfg.slot.valid() ? static_cast<uint16_t>(cfg.slot.slot_index()) : 0U;
+
+    time_alignment_measurement ta_meas = ta_estimator.estimate_with_logfile(pilots_lse_buffer,
+                                                                            stride,
+                                                                            cfg.scs,
+                                                                            0.0,
+                                                                            std::to_string(now_ns),
+                                                                            rnti_value,
+                                                                            subframe_index,
+                                                                            slot_index,
+                                                                            symbol_span,
+                                                                            subcarrier_span);
+    return ta_meas.time_alignment;
+  };
+
   // Handle contiguous RB mask cases.
   if (hop_rb_mask.is_contiguous()) {
     // RE pattern for PUCCH Format 1, 3 and 4.
     if (pattern.re_pattern.all()) {
-      return ta_estimator.estimate(pilots_lse_buffer, 1, scs).time_alignment;
+      if (cfg.enable_udp) {
+        return estimate_with_udp(1);
+      }
+      return ta_estimator.estimate(pilots_lse_buffer, 1, cfg.scs).time_alignment;
     }
 
     // RE pattern for PUSCH.
     if ((pattern.re_pattern == re_pattern_pusch_0) || (pattern.re_pattern == re_pattern_pusch_1)) {
-      return ta_estimator.estimate(pilots_lse_buffer, 2, scs).time_alignment;
+      if (cfg.enable_udp) {
+        return estimate_with_udp(2);
+      }
+      return ta_estimator.estimate(pilots_lse_buffer, 2, cfg.scs).time_alignment;
     }
 
     // RE pattern for PUCCH Format 2.
     if (pattern.re_pattern == re_pattern_pucch_f2) {
-      return ta_estimator.estimate(pilots_lse_buffer, 3, scs).time_alignment;
+      if (cfg.enable_udp) {
+        return estimate_with_udp(3);
+      }
+      return ta_estimator.estimate(pilots_lse_buffer, 3, cfg.scs).time_alignment;
     }
   }
 
@@ -291,7 +355,7 @@ float srsran::estimate_time_alignment(const re_measurement<cf_t>&               
                 re_mask.size(),
                 pilots_lse_buffer.get_slice(0).size());
 
-  return ta_estimator.estimate(pilots_lse_buffer, re_mask, scs).time_alignment;
+  return ta_estimator.estimate(pilots_lse_buffer, re_mask, cfg.scs).time_alignment;
 }
 
 interpolator::configuration srsran::configure_interpolator(const bounded_bitset<NRE>& re_mask)

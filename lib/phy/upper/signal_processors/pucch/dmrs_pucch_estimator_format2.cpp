@@ -123,6 +123,7 @@ void dmrs_pucch_estimator_format2::estimate(channel_estimate&                   
   est_cfg.dmrs_pattern.assign(1, generate_dmrs_pattern(config));
   est_cfg.rx_ports = config.ports;
   est_cfg.scaling  = 1.0F;
+  est_cfg.slot     = config.slot;
 
   // Perform estimation for each receive port.
   for (unsigned i_port = 0; i_port != nof_rx_ports; ++i_port) {

@@ -29,6 +29,8 @@
 #include "srsran/phy/upper/channel_estimation.h"
 #include "srsran/phy/upper/dmrs_mapping.h"
 #include "srsran/phy/upper/re_measurement.h"
+#include "srsran/ran/rnti.h"
+#include "srsran/ran/slot_point.h"
 #include "srsran/ran/subcarrier_spacing.h"
 
 namespace srsran {
@@ -83,6 +85,12 @@ public:
     /// Should be equal to one for PUCCH and equal to parameter \f$\beta_{\textup{PUSCH}}^{\textup{DMRS}}\f$ (see
     /// TS38.214 Section 6.2.2) for PUSCH.
     float scaling = 1;
+    /// Slot context for UDP logging.
+    slot_point slot = slot_point();
+    /// Optional RNTI for UDP logging.
+    rnti_t rnti = rnti_t::INVALID_RNTI;
+    /// Enables UDP logging for this channel estimate.
+    bool enable_udp = false;
   };
 
   /// Default destructor.
