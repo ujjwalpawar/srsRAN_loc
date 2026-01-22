@@ -8,12 +8,13 @@ The PHY layer now transmits IQ correlation samples and time-domain channel estim
 
 ### What Gets Transmitted
 
-**Per TA estimation event (PUCCH/SRS):**
+**Per TA estimation event (PUCCH/SRS/DMRS):**
 - **Correlation vector**: Time-domain correlation power (magnitude squared)
 - **IQ samples**: Complex time-domain channel observations from all antenna slices
 - **Raw symbol IQ**: Full symbol IQ for symbol 12 across all subcarriers (single RX port to keep UDP payload under limits)
 - **Metadata**: IMEISV, C-RNTI, TA value, timestamp, subframe/slot index
 - **SRS allocation**: OFDM symbol indices and subcarrier indices (per UE)
+- **Signal type**: SRS or DMRS indicator
 
 ### Packet Structure
 
@@ -36,6 +37,7 @@ struct iq_udp_packet_header {
   uint32_t nof_correlation;     // Number of correlation samples
   uint32_t nof_iq_samples;      // Number of IQ samples (complex)
   uint32_t nof_slices;          // Number of antenna slices
+  uint8_t  signal_type;         // 0=unknown, 1=SRS, 2=DMRS
 };
 
 struct iq_udp_packet {
@@ -174,7 +176,7 @@ Solutions:
 ### Wrong data received
 
 Verify struct alignment matches between C++ and Python:
-- Header size is 70 bytes (packed)
+- Header size is 71 bytes (packed)
 - Total size = header + `4 * nof_correlation` + `4 * 2 * nof_iq_samples` + `2 * nof_symbols` + `2 * nof_subcarriers` +
   `4 * 2 * raw_nof_ports * raw_nof_subcarriers` + `4 * 2 * nof_srs_sequence`
 

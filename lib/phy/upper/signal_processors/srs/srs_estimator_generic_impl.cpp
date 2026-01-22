@@ -304,6 +304,7 @@ srs_estimator_result srs_estimator_generic_impl::estimate(const resource_grid_re
                                                                                   config.rnti,
                                                                                   static_cast<uint16_t>(config.slot.subframe_index()),
                                                                                   static_cast<uint16_t>(config.slot.slot_index()),
+                                                                                  ta_signal_type::srs,
                                                                                   srs_symbol_list,
                                                                                   srs_subcarrier_list,
                                                                                   tx_srs_sequence,

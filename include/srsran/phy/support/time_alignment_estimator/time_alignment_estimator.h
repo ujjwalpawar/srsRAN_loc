@@ -29,8 +29,11 @@
 #include "srsran/phy/support/time_alignment_estimator/time_alignment_measurement.h"
 #include "srsran/ran/resource_block.h"
 #include "srsran/ran/subcarrier_spacing.h"
+#include <cstdint>
 
 namespace srsran {
+
+enum class ta_signal_type : uint8_t { unknown = 0, srs = 1, dmrs = 2 };
 
 /// Time alignment estimator interface.
 class time_alignment_estimator
@@ -99,6 +102,7 @@ public:
   /// \param[in] rnti    C-RNTI of the UE being estimated
   /// \param[in] subframe_index  Subframe index within the radio frame (0..9)
   /// \param[in] slot_index  Slot index within the radio frame
+  /// \param[in] signal_type  Signal type for logging/UDP metadata (SRS or DMRS)
   /// \param[in] srs_symbols  OFDM symbol indices carrying SRS (per UE)
   /// \param[in] srs_subcarriers  Subcarrier indices carrying SRS (per UE)
   /// \param[in] srs_sequence  SRS sequence used for channel estimation (complex, per UE)
@@ -117,6 +121,7 @@ public:
                         uint16_t                      rnti           = 0,
                         uint16_t                      subframe_index = 0,
                         uint16_t                      slot_index     = 0,
+                        ta_signal_type                signal_type    = ta_signal_type::unknown,
                         span<const uint16_t>          srs_symbols    = span<const uint16_t>{},
                         span<const uint16_t>          srs_subcarriers = span<const uint16_t>{},
                         span<const cf_t>              srs_sequence = span<const cf_t>{},

@@ -341,6 +341,7 @@ time_alignment_measurement time_alignment_estimator_dft_impl::estimate_with_logf
                                                                       uint16_t                      rnti,
                                                                       uint16_t                      subframe_index,
                                                                       uint16_t                      slot_index,
+                                                                      ta_signal_type                signal_type,
                                                                       span<const uint16_t>          srs_symbols,
                                                                       span<const uint16_t>          srs_subcarriers,
                                                                       span<const cf_t>              srs_sequence,
@@ -532,6 +533,7 @@ time_alignment_measurement time_alignment_estimator_dft_impl::estimate_with_logf
       packet.header.ta_update_time = ta_update_time_ns;
       packet.header.subframe_index = subframe_index;
       packet.header.slot_index = slot_index;
+      packet.header.signal_type = static_cast<uint8_t>(signal_type);
       packet.header.nof_symbols = static_cast<uint16_t>(srs_symbols.size());
       packet.header.nof_subcarriers = static_cast<uint16_t>(srs_subcarriers.size());
       packet.header.nof_srs_sequence = static_cast<uint16_t>(srs_sequence.size());

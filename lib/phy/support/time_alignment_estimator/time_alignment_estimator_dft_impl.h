@@ -61,6 +61,7 @@ struct __attribute__((packed)) iq_udp_packet_header {
   uint32_t nof_correlation;
   uint32_t nof_iq_samples;
   uint32_t nof_slices;               // Number of antenna slices
+  uint8_t  signal_type;              // 0=unknown, 1=SRS, 2=DMRS
 };
 
 /// UDP packet with dynamic data
@@ -159,6 +160,7 @@ public:
                         uint16_t                      rnti,
                         uint16_t                      subframe_index,
                         uint16_t                      slot_index,
+                        ta_signal_type                signal_type,
                         span<const uint16_t>          srs_symbols,
                         span<const uint16_t>          srs_subcarriers,
                         span<const cf_t>              srs_sequence,

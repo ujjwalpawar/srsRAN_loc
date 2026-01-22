@@ -315,6 +315,7 @@ float srsran::estimate_time_alignment(const re_measurement<cf_t>&               
                                                                             rnti_value,
                                                                             subframe_index,
                                                                             slot_index,
+                                                                            ta_signal_type::dmrs,
                                                                             symbol_span,
                                                                             subcarrier_span);
     return ta_meas.time_alignment;

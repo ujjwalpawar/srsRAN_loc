@@ -22,14 +22,17 @@ SAVE_IQ = args.save_iq
 SAVE_PER_PORT = True
 OUTDIR = args.outdir
 
-# Header structure (70 bytes)
-HEADER_FORMAT = '<Q16sHHIQHHHHHHHIIII'  # timestamp, imeisv[16], c_rnti, ta_flags, ta_value, ta_update_time, subframe_index, slot_index, nof_symbols, nof_subcarriers, nof_srs_sequence, raw_symbol_index, raw_nof_ports, raw_nof_subcarriers, nof_correlation, nof_iq_samples, nof_slices
-HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
+# Header structure (packed)
+HEADER_FORMAT_V2 = '<Q16sHHIQHHHHHHHIIIIB'  # v2 adds signal_type (uint8) at the end
+HEADER_FORMAT_V1 = '<Q16sHHIQHHHHHHHIIII'   # v1 without signal_type
+HEADER_SIZE_V2 = struct.calcsize(HEADER_FORMAT_V2)
+HEADER_SIZE_V1 = struct.calcsize(HEADER_FORMAT_V1)
 TA_FLAG_RAR = 0x1
+SIGNAL_TYPE_MAP = {0: 'unknown', 1: 'srs', 2: 'dmrs'}
 
 print(f"UDP IQ Sample Receiver (Dynamic Size)")
 print(f"Listening on {UDP_IP}:{UDP_PORT}")
-print(f"Header size: {HEADER_SIZE} bytes")
+print(f"Header size (v2): {HEADER_SIZE_V2} bytes | v1: {HEADER_SIZE_V1} bytes")
 print(f"Save IQ -> {SAVE_IQ}  | Output dir -> {OUTDIR} | Per-port save -> {SAVE_PER_PORT}")
 print(f"Ready to receive variable-sized packets...")
 print()
@@ -49,29 +52,56 @@ try:
         # Receive packet
         data, addr = sock.recvfrom(1024 * 1024)  # 1MB buffer for large packets
         
-        if len(data) < HEADER_SIZE:
+        if len(data) < HEADER_SIZE_V1:
             print(f"Received packet too small: {len(data)} bytes")
             continue
         
-        # Parse header
-        header_data = data[:HEADER_SIZE]
-        (timestamp,
-         imeisv_bytes,
-         c_rnti,
-         ta_flags,
-         ta_value,
-         ta_update_time,
-         subframe_index,
-         slot_index,
-         nof_symbols,
-         nof_subcarriers,
-         nof_srs_sequence,
-         raw_symbol_index,
-         raw_nof_ports,
-         raw_nof_subcarriers,
-         nof_correlation,
-         nof_iq_samples,
-         nof_slices) = struct.unpack(HEADER_FORMAT, header_data)
+        # Parse header (try v2 first, then v1 fallback)
+        signal_type = 0
+        header_size = 0
+        if len(data) >= HEADER_SIZE_V2:
+            header_data = data[:HEADER_SIZE_V2]
+            unpacked = struct.unpack(HEADER_FORMAT_V2, header_data)
+            (timestamp,
+             imeisv_bytes,
+             c_rnti,
+             ta_flags,
+             ta_value,
+             ta_update_time,
+             subframe_index,
+             slot_index,
+             nof_symbols,
+             nof_subcarriers,
+             nof_srs_sequence,
+             raw_symbol_index,
+             raw_nof_ports,
+             raw_nof_subcarriers,
+             nof_correlation,
+             nof_iq_samples,
+             nof_slices,
+             signal_type) = unpacked
+            header_size = HEADER_SIZE_V2
+        else:
+            header_data = data[:HEADER_SIZE_V1]
+            unpacked = struct.unpack(HEADER_FORMAT_V1, header_data)
+            (timestamp,
+             imeisv_bytes,
+             c_rnti,
+             ta_flags,
+             ta_value,
+             ta_update_time,
+             subframe_index,
+             slot_index,
+             nof_symbols,
+             nof_subcarriers,
+             nof_srs_sequence,
+             raw_symbol_index,
+             raw_nof_ports,
+             raw_nof_subcarriers,
+             nof_correlation,
+             nof_iq_samples,
+             nof_slices) = unpacked
+            header_size = HEADER_SIZE_V1
         
         # Decode IMEISV
         imeisv = imeisv_bytes.decode('utf-8').rstrip('\x00')
@@ -84,16 +114,53 @@ try:
         raw_iq_samples = raw_nof_ports * raw_nof_subcarriers
         raw_iq_size = raw_iq_samples * 2 * 4
         srs_sequence_size = nof_srs_sequence * 2 * 4
-        expected_size = (HEADER_SIZE + correlation_size + iq_samples_size + symbols_size +
+        expected_size = (header_size + correlation_size + iq_samples_size + symbols_size +
                          subcarriers_size + raw_iq_size + srs_sequence_size)
         
         if len(data) != expected_size:
-            print(f"⚠ Size mismatch: received {len(data)}, expected {expected_size}")
-            print(f"  Header: {HEADER_SIZE}, Correlation: {correlation_size}, IQ: {iq_samples_size}")
-            continue
+            if header_size == HEADER_SIZE_V2 and len(data) >= HEADER_SIZE_V1:
+                # Try v1 fallback if v2 didn't match size.
+                header_data = data[:HEADER_SIZE_V1]
+                unpacked = struct.unpack(HEADER_FORMAT_V1, header_data)
+                (timestamp,
+                 imeisv_bytes,
+                 c_rnti,
+                 ta_flags,
+                 ta_value,
+                 ta_update_time,
+                 subframe_index,
+                 slot_index,
+                 nof_symbols,
+                 nof_subcarriers,
+                 nof_srs_sequence,
+                 raw_symbol_index,
+                 raw_nof_ports,
+                 raw_nof_subcarriers,
+                 nof_correlation,
+                 nof_iq_samples,
+                 nof_slices) = unpacked
+                signal_type = 0
+                header_size = HEADER_SIZE_V1
+                correlation_size = nof_correlation * 4
+                iq_samples_size = nof_iq_samples * 2 * 4
+                symbols_size = nof_symbols * 2
+                subcarriers_size = nof_subcarriers * 2
+                raw_iq_samples = raw_nof_ports * raw_nof_subcarriers
+                raw_iq_size = raw_iq_samples * 2 * 4
+                srs_sequence_size = nof_srs_sequence * 2 * 4
+                expected_size = (header_size + correlation_size + iq_samples_size + symbols_size +
+                                 subcarriers_size + raw_iq_size + srs_sequence_size)
+                if len(data) != expected_size:
+                    print(f"⚠ Size mismatch: received {len(data)}, expected {expected_size}")
+                    print(f"  Header: {header_size}, Correlation: {correlation_size}, IQ: {iq_samples_size}")
+                    continue
+            else:
+                print(f"⚠ Size mismatch: received {len(data)}, expected {expected_size}")
+                print(f"  Header: {header_size}, Correlation: {correlation_size}, IQ: {iq_samples_size}")
+                continue
         
         # Parse correlation array
-        corr_offset = HEADER_SIZE
+        corr_offset = header_size
         correlation = struct.unpack(f'<{nof_correlation}f', data[corr_offset:corr_offset + correlation_size])
         
         # Parse IQ samples (interleaved I/Q)
@@ -153,6 +220,7 @@ try:
         print(f"TA Value: {ta_value}")
         print(f"TA Update Time: {ta_update_time}")
         print(f"TA Flags: 0x{ta_flags:04x} (RAR={'yes' if (ta_flags & TA_FLAG_RAR) else 'no'})")
+        print(f"Signal type: {signal_type} ({SIGNAL_TYPE_MAP.get(signal_type, 'unknown')})")
         print(f"Subframe index: {subframe_index}")
         print(f"Slot index: {slot_index}")
         print(f"SRS symbols: {nof_symbols}")
@@ -241,6 +309,7 @@ try:
                         raw_nof_ports=np.array([raw_nof_ports], dtype=np.uint16),
                         raw_nof_subcarriers=np.array([raw_nof_subcarriers], dtype=np.uint32),
                         nof_srs_sequence=np.array([nof_srs_sequence], dtype=np.uint16),
+                        signal_type=np.array([signal_type], dtype=np.uint8),
                     )
 
                     # Optionally save per-port 2D arrays
