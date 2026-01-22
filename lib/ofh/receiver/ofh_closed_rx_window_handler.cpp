@@ -23,6 +23,7 @@
 #include "ofh_closed_rx_window_handler.h"
 #include "srsran/srsvec/zero.h"
 #include "srsran/support/executors/task_executor.h"
+#include <iostream>
 
 using namespace srsran;
 using namespace ofh;
@@ -77,6 +78,12 @@ void closed_rx_window_handler::handle_uplink_context(slot_symbol_point symbol_po
   uplane_rx_symbol_context notification_context = {
       ctx_value.context.slot, symbol_point.get_symbol_index(), ctx_value.context.sector};
   notifier->on_new_uplink_symbol(notification_context, std::move(ctx_value.grid));
+
+  const slot_point slot = ctx_value.context.slot;
+  std::cout << "[OFH] Zero-filled UL symbol: sector=" << ctx_value.context.sector
+            << " sfn=" << slot.sfn()
+            << " slot=" << slot.slot_index()
+            << " symbol=" << symbol_point.get_symbol_index() << std::endl;
 
   if (log_unreceived_messages) {
     logger.warning("Sector#{}: missed incoming User-Plane uplink messages for slot '{}', symbol '{}'",
