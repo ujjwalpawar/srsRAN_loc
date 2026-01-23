@@ -113,8 +113,9 @@ void maybe_log_dump_status(const ofh_ul_dump_config& cfg,
   static std::atomic<unsigned> log_count{0};
   unsigned                     count = log_count.fetch_add(1);
   if (count < 20) {
+    const bool sfn_mod_match = (cfg.sfn_mod == 0) || ((slot.sfn() % cfg.sfn_mod) == 0);
     logger.warning(
-        "Sector#{}: OFH UL dump check: sfn={} subframe={} slot_in_sf={} slot_in_frame={} symbol={} port={} (target sf={} slot={} sym={} port={})",
+        "Sector#{}: OFH UL dump check: sfn={} subframe={} slot_in_sf={} slot_in_frame={} symbol={} port={} sfn_mod_match={} (target sf={} slot={} sym={} port={} sfn_mod={})",
         sector_id,
         slot.sfn(),
         slot.subframe_index(),
@@ -122,10 +123,12 @@ void maybe_log_dump_status(const ofh_ul_dump_config& cfg,
         slot.slot_index(),
         symbol,
         rg_port,
+        sfn_mod_match ? 1 : 0,
         cfg.subframe,
         cfg.slot,
         cfg.symbol,
-        cfg.port);
+        cfg.port,
+        cfg.sfn_mod);
     std::cerr << "[OFH] UL dump check: sector=" << sector_id
               << " sfn=" << slot.sfn()
               << " subframe=" << slot.subframe_index()
@@ -133,10 +136,12 @@ void maybe_log_dump_status(const ofh_ul_dump_config& cfg,
               << " slot_in_frame=" << slot.slot_index()
               << " symbol=" << symbol
               << " port=" << rg_port
+              << " sfn_mod_match=" << (sfn_mod_match ? 1 : 0)
               << " target(subframe=" << cfg.subframe
               << " slot=" << cfg.slot
               << " symbol=" << cfg.symbol
-              << " port=" << cfg.port << ")"
+              << " port=" << cfg.port
+              << " sfn_mod=" << cfg.sfn_mod << ")"
               << std::endl;
   }
 }
@@ -153,7 +158,7 @@ bool should_dump_ul_symbol(const ofh_ul_dump_config& cfg,
     return false;
   }
   if (cfg.sfn_mod != 0 && (slot.sfn() % cfg.sfn_mod) != 0) {
-    return false;
+    return false;     
   }
   if (slot.subframe_index() != cfg.subframe) {
     return false;
@@ -171,7 +176,7 @@ bool should_dump_ul_symbol(const ofh_ul_dump_config& cfg,
 std::string build_dump_path(const ofh_ul_dump_config&    cfg,
                             unsigned                    sfn,
                             unsigned                    rg_port,
-                            unsigned                    seq,
+                            unsigned                    seq,       
                             const uplane_section_params& section)
 {
   std::string path = cfg.path_prefix;
