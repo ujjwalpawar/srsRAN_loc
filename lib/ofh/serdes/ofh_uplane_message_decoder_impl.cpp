@@ -27,126 +27,10 @@
 #include "srsran/ofh/compression/compression_properties.h"
 #include "srsran/ofh/compression/iq_decompressor.h"
 #include "srsran/support/units.h"
-#include <atomic>
-#include <cstdlib>
-#include <fstream>
 #include <string>
 
 using namespace srsran;
 using namespace ofh;
-
-namespace {
-
-struct ofh_ul_dump_config {
-  bool        enabled;
-  unsigned    subframe;
-  unsigned    slot;
-  unsigned    symbol;
-  std::string path_prefix;
-};
-
-unsigned parse_env_or_default(const char* name, unsigned default_value)
-{
-  const char* value = std::getenv(name);
-  if (value == nullptr || *value == '\0') {
-    return default_value;
-  }
-
-  char*         end_ptr = nullptr;
-  unsigned long parsed  = std::strtoul(value, &end_ptr, 10);
-  if (end_ptr == value) {
-    return default_value;
-  }
-
-  return static_cast<unsigned>(parsed);
-}
-
-const ofh_ul_dump_config& get_ul_dump_config()
-{
-  static const ofh_ul_dump_config cfg = []() {
-    ofh_ul_dump_config out{};
-    const char*        enable_env = std::getenv("SRSRAN_OFH_DUMP_ENABLE");
-    out.enabled                  = (enable_env != nullptr) && (std::atoi(enable_env) != 0);
-    out.subframe                 = parse_env_or_default("SRSRAN_OFH_DUMP_SUBFRAME", 3);
-    out.slot                     = parse_env_or_default("SRSRAN_OFH_DUMP_SLOT", 7);
-    out.symbol                   = parse_env_or_default("SRSRAN_OFH_DUMP_SYMBOL", 12);
-    const char* path_env         = std::getenv("SRSRAN_OFH_DUMP_PATH");
-    out.path_prefix              = (path_env != nullptr && *path_env != '\0') ? path_env : "/tmp/ofh_ul";
-    return out;
-  }();
-  return cfg;
-}
-
-bool should_dump_ul_symbol(const ofh_ul_dump_config& cfg, const uplane_message_params& params)
-{
-  if (!cfg.enabled) {
-    return false;
-  }
-
-  const slot_point slot = params.slot;
-  if (slot.subframe_index() != cfg.subframe) {
-    return false;
-  }
-  if (slot.subframe_slot_index() != cfg.slot) {
-    return false;
-  }
-  if (params.symbol_id != cfg.symbol) {
-    return false;
-  }
-
-  static std::atomic<int> selected_sfn{-1};
-  int                     sfn_value = static_cast<int>(slot.sfn());
-  int                     unset_val = -1;
-  if (selected_sfn.compare_exchange_strong(unset_val, sfn_value)) {
-    return true;
-  }
-  return selected_sfn.load() == sfn_value;
-}
-
-std::string build_dump_path(const ofh_ul_dump_config&    cfg,
-                            unsigned                    sfn,
-                            unsigned                    seq,
-                            const uplane_section_params& section)
-{
-  std::string path = cfg.path_prefix;
-  path += "_sfn" + std::to_string(sfn);
-  path += "_sf" + std::to_string(cfg.subframe);
-  path += "_slot" + std::to_string(cfg.slot);
-  path += "_sym" + std::to_string(cfg.symbol);
-  path += "_sec" + std::to_string(section.section_id);
-  path += "_prb" + std::to_string(section.start_prb);
-  path += "_n" + std::to_string(section.nof_prbs);
-  path += "_seq" + std::to_string(seq);
-  path += ".cbf16";
-  return path;
-}
-
-void dump_ul_section_iq(const ofh_ul_dump_config&   cfg,
-                        unsigned                   sector_id,
-                        const uplane_message_params& params,
-                        const uplane_section_params& section,
-                        srslog::basic_logger&      logger)
-{
-  static std::atomic<unsigned> dump_seq{0};
-  unsigned                     seq  = dump_seq.fetch_add(1);
-  std::string                  path = build_dump_path(cfg, params.slot.sfn(), seq, section);
-  std::ofstream out(path, std::ios::binary);
-  if (!out.is_open()) {
-    logger.warning("Sector#{}: failed to open OFH dump file '{}'", sector_id, path);
-    return;
-  }
-
-  out.write(reinterpret_cast<const char*>(section.iq_samples.data()),
-            sizeof(cbf16_t) * section.iq_samples.size());
-  logger.info("Sector#{}: dumped OFH UL IQ for slot '{}' symbol '{}' to '{}' ({} samples)",
-              sector_id,
-              params.slot,
-              params.symbol_id,
-              path,
-              section.iq_samples.size());
-}
-
-} // namespace
 
 /// Number of bytes of the User-Plane header.
 static constexpr unsigned NOF_BYTES_UP_HEADER = 4U;
@@ -398,11 +282,6 @@ uplane_message_decoder_impl::decode_section(uplane_message_decoder_results&    r
 
   // Decode the IQ data.
   decode_iq_data(section, deserializer, section.ud_comp_hdr);
-  const ofh_ul_dump_config& dump_cfg = get_ul_dump_config();
-  if (should_dump_ul_symbol(dump_cfg, results.params)) {
-    dump_ul_section_iq(dump_cfg, sector_id, results.params, section, logger);
-  }
-
   return decoded_section_status::ok;
 }
 

@@ -23,9 +23,199 @@
 #include "ofh_uplane_rx_symbol_data_flow_writer.h"
 #include "srsran/instrumentation/traces/ofh_traces.h"
 #include "srsran/ofh/serdes/ofh_uplane_message_decoder_properties.h"
+#include <atomic>
+#include <cstdlib>
+#include <fstream>
+#include <iostream>
+#include <string>
 
 using namespace srsran;
 using namespace ofh;
+
+namespace {
+
+struct ofh_ul_dump_config {
+  bool        enabled;
+  unsigned    subframe;
+  unsigned    slot;
+  unsigned    symbol;
+  unsigned    port;
+  std::string path_prefix;
+};
+
+unsigned parse_env_or_default(const char* name, unsigned default_value)
+{
+  const char* value = std::getenv(name);
+  if (value == nullptr || *value == '\0') {
+    return default_value;
+  }
+
+  char*         end_ptr = nullptr;
+  unsigned long parsed  = std::strtoul(value, &end_ptr, 10);
+  if (end_ptr == value) {
+    return default_value;
+  }
+
+  return static_cast<unsigned>(parsed);
+}
+
+const ofh_ul_dump_config& get_ul_dump_config()
+{
+  static const ofh_ul_dump_config cfg = []() {
+    ofh_ul_dump_config out{};
+    const char*        enable_env = std::getenv("SRSRAN_OFH_DUMP_ENABLE");
+    out.enabled                  = (enable_env != nullptr) && (std::atoi(enable_env) != 0);
+    out.subframe                 = parse_env_or_default("SRSRAN_OFH_DUMP_SUBFRAME", 3);
+    out.slot                     = parse_env_or_default("SRSRAN_OFH_DUMP_SLOT", 7);
+    out.symbol                   = parse_env_or_default("SRSRAN_OFH_DUMP_SYMBOL", 12);
+    out.port                     = parse_env_or_default("SRSRAN_OFH_DUMP_PORT", 0);
+    const char* path_env         = std::getenv("SRSRAN_OFH_DUMP_PATH");
+    out.path_prefix              = (path_env != nullptr && *path_env != '\0') ? path_env : "/tmp/ofh_ul";
+    return out;
+  }();
+  return cfg;
+}
+
+void maybe_log_dump_status(const ofh_ul_dump_config& cfg,
+                           unsigned                 sector_id,
+                           const slot_point&        slot,
+                           unsigned                 symbol,
+                           unsigned                 rg_port,
+                           srslog::basic_logger&    logger)
+{
+  if (!cfg.enabled) {
+    return;
+  }
+
+  static std::atomic<bool> logged_cfg{false};
+  if (!logged_cfg.exchange(true)) {
+    logger.warning(
+        "Sector#{}: OFH UL dump enabled: subframe={} slot={} symbol={} port={} path_prefix='{}'",
+        sector_id,
+        cfg.subframe,
+        cfg.slot,
+        cfg.symbol,
+        cfg.port,
+        cfg.path_prefix);
+    std::cerr << "[OFH] UL dump enabled: sector=" << sector_id
+              << " subframe=" << cfg.subframe
+              << " slot=" << cfg.slot
+              << " symbol=" << cfg.symbol
+              << " port=" << cfg.port
+              << " path_prefix='" << cfg.path_prefix << "'"
+              << std::endl;
+  }
+
+  static std::atomic<unsigned> log_count{0};
+  unsigned                     count = log_count.fetch_add(1);
+  if (count < 20) {
+    logger.warning(
+        "Sector#{}: OFH UL dump check: sfn={} subframe={} slot_in_sf={} slot_in_frame={} symbol={} port={} (target sf={} slot={} sym={} port={})",
+        sector_id,
+        slot.sfn(),
+        slot.subframe_index(),
+        slot.subframe_slot_index(),
+        slot.slot_index(),
+        symbol,
+        rg_port,
+        cfg.subframe,
+        cfg.slot,
+        cfg.symbol,
+        cfg.port);
+    std::cerr << "[OFH] UL dump check: sector=" << sector_id
+              << " sfn=" << slot.sfn()
+              << " subframe=" << slot.subframe_index()
+              << " slot_in_sf=" << slot.subframe_slot_index()
+              << " slot_in_frame=" << slot.slot_index()
+              << " symbol=" << symbol
+              << " port=" << rg_port
+              << " target(subframe=" << cfg.subframe
+              << " slot=" << cfg.slot
+              << " symbol=" << cfg.symbol
+              << " port=" << cfg.port << ")"
+              << std::endl;
+  }
+}
+
+bool should_dump_ul_symbol(const ofh_ul_dump_config& cfg,
+                           const slot_point&        slot,
+                           unsigned                 symbol,
+                           unsigned                 rg_port)
+{
+  if (!cfg.enabled) {
+    return false;
+  }
+  if (rg_port != cfg.port) {
+    return false;
+  }
+  if (slot.subframe_index() != cfg.subframe) {
+    return false;
+  }
+  if (symbol != cfg.symbol) {
+    return false;
+  }
+  if (slot.subframe_slot_index() != cfg.slot && slot.slot_index() != cfg.slot) {
+    return false;
+  }
+
+  static std::atomic<int> selected_sfn{-1};
+  int                     sfn_value = static_cast<int>(slot.sfn());
+  int                     unset_val = -1;
+  if (selected_sfn.compare_exchange_strong(unset_val, sfn_value)) {
+    return true;
+  }
+  return selected_sfn.load() == sfn_value;
+}
+
+std::string build_dump_path(const ofh_ul_dump_config&    cfg,
+                            unsigned                    sfn,
+                            unsigned                    rg_port,
+                            unsigned                    seq,
+                            const uplane_section_params& section)
+{
+  std::string path = cfg.path_prefix;
+  path += "_sfn" + std::to_string(sfn);
+  path += "_sf" + std::to_string(cfg.subframe);
+  path += "_slot" + std::to_string(cfg.slot);
+  path += "_sym" + std::to_string(cfg.symbol);
+  path += "_port" + std::to_string(rg_port);
+  path += "_sec" + std::to_string(section.section_id);
+  path += "_prb" + std::to_string(section.start_prb);
+  path += "_n" + std::to_string(section.nof_prbs);
+  path += "_seq" + std::to_string(seq);
+  path += ".cbf16";
+  return path;
+}
+
+void dump_ul_section_iq(const ofh_ul_dump_config&    cfg,
+                        unsigned                    sector_id,
+                        const slot_point&           slot,
+                        unsigned                    symbol,
+                        unsigned                    rg_port,
+                        const uplane_section_params& section,
+                        span<const cbf16_t>         samples,
+                        srslog::basic_logger&       logger)
+{
+  static std::atomic<unsigned> dump_seq{0};
+  unsigned                     seq  = dump_seq.fetch_add(1);
+  std::string                  path = build_dump_path(cfg, slot.sfn(), rg_port, seq, section);
+  std::ofstream out(path, std::ios::binary);
+  if (!out.is_open()) {
+    logger.warning("Sector#{}: failed to open OFH dump file '{}'", sector_id, path);
+    return;
+  }
+
+  out.write(reinterpret_cast<const char*>(samples.data()), sizeof(cbf16_t) * samples.size());
+  logger.info("Sector#{}: dumped OFH UL IQ for slot '{}' symbol '{}' port {} to '{}' ({} samples)",
+              sector_id,
+              slot,
+              symbol,
+              rg_port,
+              path,
+              samples.size());
+}
+
+} // namespace
 
 void uplane_rx_symbol_data_flow_writer::write_to_resource_grid(unsigned                              eaxc,
                                                                const uplane_message_decoder_results& results)
@@ -52,6 +242,10 @@ void uplane_rx_symbol_data_flow_writer::write_to_resource_grid(unsigned         
   unsigned rg_port = std::distance(ul_eaxc.begin(), std::find(ul_eaxc.begin(), ul_eaxc.end(), eaxc));
   srsran_assert(rg_port < ul_eaxc.size(), "Invalid resource grid port value '{}'", rg_port);
 
+  const ofh_ul_dump_config& dump_cfg = get_ul_dump_config();
+  maybe_log_dump_status(dump_cfg, sector_id, slot, symbol, rg_port, logger);
+  const bool                do_dump = should_dump_ul_symbol(dump_cfg, slot, symbol, rg_port);
+
   // The DU cell bandwidth may be narrower than the operating bandwidth of the RU.
   unsigned du_nof_prbs = ul_context.get_grid_nof_prbs();
   for (const auto& section : results.sections) {
@@ -73,13 +267,18 @@ void uplane_rx_symbol_data_flow_writer::write_to_resource_grid(unsigned         
     }
 
     trace_point write_rg_tp = ofh_tracer.now();
+    span<const cbf16_t> samples =
+        span<const cbf16_t>(section.iq_samples).first(nof_prbs_to_write * NOF_SUBCARRIERS_PER_RB);
+    if (do_dump && !samples.empty()) {
+      dump_ul_section_iq(dump_cfg, sector_id, slot, symbol, rg_port, section, samples, logger);
+    }
 
     ul_context_repo->write_grid(
         slot,
         rg_port,
         symbol,
         section.start_prb * NOF_SUBCARRIERS_PER_RB,
-        span<const cbf16_t>(section.iq_samples).first(nof_prbs_to_write * NOF_SUBCARRIERS_PER_RB));
+        samples);
 
     ofh_tracer << trace_event("ofh_receiver_write_rg", write_rg_tp);
 
