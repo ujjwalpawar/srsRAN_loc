@@ -40,6 +40,7 @@ struct ofh_ul_dump_config {
   unsigned    slot;
   unsigned    symbol;
   unsigned    port;
+  unsigned    sfn_mod;
   unsigned    match_interval;
   std::string path_prefix;
 };
@@ -70,6 +71,7 @@ const ofh_ul_dump_config& get_ul_dump_config()
     out.slot                     = parse_env_or_default("SRSRAN_OFH_DUMP_SLOT", 7);
     out.symbol                   = parse_env_or_default("SRSRAN_OFH_DUMP_SYMBOL", 12);
     out.port                     = parse_env_or_default("SRSRAN_OFH_DUMP_PORT", 0);
+    out.sfn_mod                  = parse_env_or_default("SRSRAN_OFH_DUMP_SFN_MOD", 0);
     out.match_interval           = parse_env_or_default("SRSRAN_OFH_DUMP_EVERY_N_MATCHES", 1);
     const char* path_env         = std::getenv("SRSRAN_OFH_DUMP_PATH");
     out.path_prefix              = (path_env != nullptr && *path_env != '\0') ? path_env : "/tmp/ofh_ul";
@@ -92,12 +94,13 @@ void maybe_log_dump_status(const ofh_ul_dump_config& cfg,
   static std::atomic<bool> logged_cfg{false};
   if (!logged_cfg.exchange(true)) {
     logger.warning(
-        "Sector#{}: OFH UL dump enabled: subframe={} slot={} symbol={} port={} every_n_matches={} path_prefix='{}'",
+        "Sector#{}: OFH UL dump enabled: subframe={} slot={} symbol={} port={} sfn_mod={} every_n_matches={} path_prefix='{}'",
         sector_id,
         cfg.subframe,
         cfg.slot,
         cfg.symbol,
         cfg.port,
+        cfg.sfn_mod,
         cfg.match_interval,
         cfg.path_prefix);
     std::cerr << "[OFH] UL dump enabled: sector=" << sector_id
@@ -105,6 +108,7 @@ void maybe_log_dump_status(const ofh_ul_dump_config& cfg,
               << " slot=" << cfg.slot
               << " symbol=" << cfg.symbol
               << " port=" << cfg.port
+              << " sfn_mod=" << cfg.sfn_mod
               << " every_n_matches=" << cfg.match_interval
               << " path_prefix='" << cfg.path_prefix << "'"
               << std::endl;
@@ -150,6 +154,9 @@ bool should_dump_ul_symbol(const ofh_ul_dump_config& cfg,
     return false;
   }
   if (rg_port != cfg.port) {
+    return false;
+  }
+  if (cfg.sfn_mod != 0 && (slot.sfn() % cfg.sfn_mod) != 0) {
     return false;
   }
   if (slot.subframe_index() != cfg.subframe) {
