@@ -40,6 +40,7 @@ struct ofh_ul_dump_config {
   unsigned    slot;
   unsigned    symbol;
   unsigned    port;
+  unsigned    match_interval;
   std::string path_prefix;
 };
 
@@ -69,6 +70,7 @@ const ofh_ul_dump_config& get_ul_dump_config()
     out.slot                     = parse_env_or_default("SRSRAN_OFH_DUMP_SLOT", 7);
     out.symbol                   = parse_env_or_default("SRSRAN_OFH_DUMP_SYMBOL", 12);
     out.port                     = parse_env_or_default("SRSRAN_OFH_DUMP_PORT", 0);
+    out.match_interval           = parse_env_or_default("SRSRAN_OFH_DUMP_EVERY_N_MATCHES", 1);
     const char* path_env         = std::getenv("SRSRAN_OFH_DUMP_PATH");
     out.path_prefix              = (path_env != nullptr && *path_env != '\0') ? path_env : "/tmp/ofh_ul";
     return out;
@@ -90,18 +92,20 @@ void maybe_log_dump_status(const ofh_ul_dump_config& cfg,
   static std::atomic<bool> logged_cfg{false};
   if (!logged_cfg.exchange(true)) {
     logger.warning(
-        "Sector#{}: OFH UL dump enabled: subframe={} slot={} symbol={} port={} path_prefix='{}'",
+        "Sector#{}: OFH UL dump enabled: subframe={} slot={} symbol={} port={} every_n_matches={} path_prefix='{}'",
         sector_id,
         cfg.subframe,
         cfg.slot,
         cfg.symbol,
         cfg.port,
+        cfg.match_interval,
         cfg.path_prefix);
     std::cerr << "[OFH] UL dump enabled: sector=" << sector_id
               << " subframe=" << cfg.subframe
               << " slot=" << cfg.slot
               << " symbol=" << cfg.symbol
               << " port=" << cfg.port
+              << " every_n_matches=" << cfg.match_interval
               << " path_prefix='" << cfg.path_prefix << "'"
               << std::endl;
   }
@@ -158,13 +162,13 @@ bool should_dump_ul_symbol(const ofh_ul_dump_config& cfg,
     return false;
   }
 
-  static std::atomic<int> selected_sfn{-1};
-  int                     sfn_value = static_cast<int>(slot.sfn());
-  int                     unset_val = -1;
-  if (selected_sfn.compare_exchange_strong(unset_val, sfn_value)) {
+  if (cfg.match_interval <= 1) {
     return true;
   }
-  return selected_sfn.load() == sfn_value;
+
+  static std::atomic<unsigned> match_count{0};
+  unsigned                     count = match_count.fetch_add(1);
+  return (count % cfg.match_interval) == 0;
 }
 
 std::string build_dump_path(const ofh_ul_dump_config&    cfg,
