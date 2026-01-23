@@ -131,7 +131,9 @@ bool should_dump_ul_symbol(const slot_point& ctx_slot, unsigned symbol, unsigned
   if (ctx_slot.subframe_index() != OFH_DUMP_SUBFRAME) {
     return false;
   }
-  if (ctx_slot.slot_index() != OFH_DUMP_SLOT) {
+  const bool slot_match =
+      (ctx_slot.slot_index() == OFH_DUMP_SLOT) || (ctx_slot.subframe_slot_index() == OFH_DUMP_SLOT);
+  if (!slot_match) {
     return false;
   }
   if (symbol != OFH_DUMP_SYMBOL) {
