@@ -39,7 +39,7 @@ static constexpr unsigned OFH_DUMP_SLOT = 7;
 static constexpr unsigned OFH_DUMP_SYMBOL = 12;
 static constexpr unsigned OFH_DUMP_PORT = 0;
 static constexpr unsigned OFH_DUMP_SFN_MOD = 32;
-static const char*        OFH_DUMP_PATH_PREFIX = "/home/netsys/new_data_collection/initial_iq";
+static const char*        OFH_DUMP_PATH_PREFIX = "/home/netsys/new_data_collection/initial_iq/iq";
 
 void maybe_log_dump_status(unsigned              sector_id,
                            const slot_point&     rx_slot,
