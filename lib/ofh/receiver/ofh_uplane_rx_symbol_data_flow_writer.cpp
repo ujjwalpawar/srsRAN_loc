@@ -33,7 +33,7 @@ using namespace ofh;
 
 namespace {
 
-static constexpr bool     OFH_DUMP_ENABLED = true;
+static constexpr bool     OFH_DUMP_ENABLED = false;
 static constexpr unsigned OFH_DUMP_SUBFRAME = 3;
 static constexpr unsigned OFH_DUMP_SLOT = 7;
 static constexpr unsigned OFH_DUMP_SYMBOL = 12;
